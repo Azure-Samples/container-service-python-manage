@@ -10,8 +10,11 @@
 import io
 import os
 import sys
+from collections import namedtuple
 
+import docker
 from haikunator import Haikunator
+
 from azure.common.credentials import ServicePrincipalCredentials
 from azure.mgmt.containerregistry import (
     ContainerRegistryManagementClient,
@@ -49,117 +52,162 @@ from azure.mgmt.storage.models import (
 from msrestazure.azure_exceptions import CloudError
 
 
+ClientData = namedtuple('ClientArgs', ['credentials', 'subscription_id'])
+
+
+class ResourceHelper(object):
+    def __init__(self, client_data, location,
+                 default_name='containersample-group',
+                 resource_group=None):
+        self.location = location
+        self.default_name = default_name
+        self.resource_client = ResourceManagementClient(*client_data)
+        self._resource_group = resource_group
+
+    @property
+    def group(self):
+        if self._resource_group is None:
+            print('Ensuring resource group...')
+            resource_group = self.resource_client.resource_groups.create_or_update(
+                self.default_name,
+                {'location': self.location}
+            )
+            print('Got resource group:', resource_group.name)
+            self._resource_group = resource_group
+        return self._resource_group
+
+
 class StorageHelper(object):
-    def __init__(self, credentials, subscription_id,
+    def __init__(self, client_data, resource_helper,
                  account=None,
                  default_name='containersample'):
-        self.key = os.environ.get('AZURE_STORAGE_KEY')
         self.default_name = default_name
-        self.account = account
-        self.client = StorageManagementClient(
-            credentials,
-            subscription_id,
-        )
+        self._account = account
+        self._key = os.environ.get('AZURE_STORAGE_KEY')
+        self.resource_helper = resource_helper
+        self.client = StorageManagementClient(*client_data)
 
-    def ensure_resources(self, resource_group):
-        self.account = self.account or self._create_storage_account(resource_group)
-        self.key = self.key or self._get_key(resource_group)
-
-    def _create_storage_account(self, resource_group):
-        print('Creating storage account...')
-        # OK to create storage account even if it already exists
-        storage_creation = self.client.storage_accounts.create(
-            resource_group.name,
-            self.default_name,
-            StorageAccountCreateParameters(
-                location=resource_group.location,
-                sku=StorageAccountSku(StorageSkuName.standard_lrs),
-                kind=StorageKind.storage,
-            )
-        )
-        storage_creation.wait()
-        storage = storage_creation.result()
-        print('Got storage account:', storage.name)
-        return storage
-
-    def _get_key(self, resource_group):
-        """Get the first storage key."""
-        storage_keys = self.client.storage_accounts.list_keys(
-            resource_group.name,
-            self.account.name
-        )
-        return next(iter(storage_keys.keys)).value
-
-
-class Deployer(object):
-    def __init__(self, credentials, subscription_id,
-                 default_name='containersample',
-                 resource_group=None,
-                 storage_account=None,
-                 container_registry=None):
-        self.default_name = default_name
-        self.resource_group = resource_group
-        self.storage = StorageHelper(credentials, subscription_id, account=storage_account)
-        self.container_registry = container_registry
-
-        self.dns_prefix = Haikunator().haikunate()
-        self.location = 'South Central US'
-
-        self.resource_client = ResourceManagementClient(
-            credentials,
-            subscription_id
-        )
-        self.resource_client.providers.register('Microsoft.ContainerRegistry')
-        self.registry_client = ContainerRegistryManagementClient(
-            credentials,
-            subscription_id
-        )
-        self.container_client = ContainerServiceClient(
-            credentials,
-            subscription_id
-        )
-
-    def ensure_resources(self):
-        self.resource_group = self.resource_group or self._create_resource_group()
-        self.storage.ensure_resources(self.resource_group)
-        self.container_registry = self.container_registry or self._create_container_registry()
-
-    def _create_resource_group(self):
-        print('Ensuring resource group...')
-        resource_group_name = self.default_name + '-group'
-        resource_group = self.resource_client.resource_groups.create_or_update(
-            resource_group_name,
-            {'location': self.location}
-        )
-        print('Got resource group:', resource_group.name)
-        return resource_group
-
-    def _create_container_registry(self):
-        print('Creating container registry...')
-        registry_ops = self.registry_client.registries
-        try:
-            registry = registry_ops.get(
-                self.resource_group.name,
+    @property
+    def account(self):
+        if self._account is None:
+            print('Creating storage account...')
+            # OK to create storage account even if it already exists
+            storage_creation = self.client.storage_accounts.create(
+                self.resource_helper.group.name,
                 self.default_name,
-            )
-        except CloudError:
-            # try to create registry
-            registry_creation = registry_ops.create(
-                self.resource_group.name,
-                self.default_name,
-                RegistryCreateParameters(
-                    location=self.location,
-                    sku=ContainerRegistrySku(ContainerRegistrySkuName.basic),
-                    storage_account=StorageAccountParameters(
-                        self.storage.account.name,
-                        self.storage.key
-                    )
+                StorageAccountCreateParameters(
+                    location=self.resource_helper.group.location,
+                    sku=StorageAccountSku(StorageSkuName.standard_lrs),
+                    kind=StorageKind.storage,
                 )
             )
-            registry_creation.wait()
-            registry = registry_creation.result()
-        print('Got container registry:', registry.name)
-        return registry
+            storage_creation.wait()
+            storage = storage_creation.result()
+            print('Got storage account:', storage.name)
+            self._account = storage
+        return self._account
+
+    @property
+    def key(self):
+        """Get the first storage key."""
+        if self._key is None:
+            storage_keys = self.client.storage_accounts.list_keys(
+                self.resource_helper.group.name,
+                self.account.name
+            )
+            self._key = next(iter(storage_keys.keys)).value
+        return self._key
+
+
+class DockerHelper(object):
+    def __init__(self, client_data, resource_helper, storage,
+                 registry=None,
+                 default_name='containersample'):
+        self.resources = resource_helper
+        self.storage = storage
+        self.default_name = default_name
+        self.docker_client = docker.from_env()
+        self.dns_prefix = Haikunator().haikunate()
+        self._registry = registry
+        self.registry_client = ContainerRegistryManagementClient(*client_data)
+        self.container_client = ContainerServiceClient(*client_data)
+
+    @property
+    def registry(self):
+        if self._registry is None:
+            print('Creating container registry...')
+            registry_ops = self.registry_client.registries
+            try:
+                registry = registry_ops.get(
+                    self.resources.group.name,
+                    self.default_name,
+                )
+            except CloudError:
+                # try to create registry
+                registry_creation = registry_ops.create(
+                    self.resources.group.name,
+                    self.default_name,
+                    RegistryCreateParameters(
+                        location=self.storage.account.location,
+                        sku=ContainerRegistrySku(ContainerRegistrySkuName.basic),
+                        admin_user_enabled=True,
+                        storage_account=StorageAccountParameters(
+                            self.storage.account.name,
+                            self.storage.key,
+                        ),
+                    )
+                )
+                registry_creation.wait()
+                registry = registry_creation.result()
+            self._registry = registry
+            print('Got container registry:', registry.name)
+        return self._registry
+
+    def login_to_registry(self):
+        print('Logging into Docker registry...')
+        registry_credentials = self.registry_client.registries.list_credentials(
+            self.resources.group.name,
+            self.registry.name,
+        )
+        first_password = next(iter(registry_credentials.passwords)).value
+        self.docker_client.login(
+            username=registry_credentials.username,
+            password=first_password,
+            registry=self.registry.login_server,
+        )
+        print('Login successful.')
+
+    def create_acs_container(self):
+        # Create container on ACS using the ACR link (like the CLI line Karthik does)
+        container_ops = self.container_client.container_services
+
+        container_service = ContainerService(
+            self.storage.account.location,
+            ContainerServiceMasterProfile(
+                dns_prefix=self.dns_prefix,
+                count=1
+            ),
+            [
+                ContainerServiceAgentPoolProfile(
+                    name=self.default_name,
+                    vm_size='Standard_D1_v2',
+                    dns_prefix=self.dns_prefix,
+                )
+            ],
+            # linux_profile
+            ContainerServiceLinuxProfile(
+                self.default_name,
+                self._get_ssh_config()
+            )
+        )
+
+        container_service_creation = container_ops.create_or_update(
+            resource_group_name=self.resources.group.name,
+            container_service_name=self.default_name,
+            parameters=container_service,
+        )
+        container_service_creation.wait()
+        print(container_service_creation.result())
 
     def _get_ssh_config(self, key_path=None):
         key_path = key_path or os.path.join(os.environ['HOME'], '.ssh', 'id_rsa.pub')
@@ -170,42 +218,24 @@ class Deployer(object):
                 ]
             )
 
-    def create_acs_container(self):
-        # Create container on ACS using the ACR link (like the CLI line Karthik does)
-        container_ops = self.container_client.container_services
 
-        container_service = ContainerService(
-            self.location,
-            ContainerServiceMasterProfile(
-                self.dns_prefix,
-                count=1
-            ),
-            ContainerServiceAgentPoolProfile(
-                'container-sample',
-                'Standard_D1_v2',
-                self.dns_prefix
-            ),
-            # linux_profile
-            ContainerServiceLinuxProfile(
-                'container-sample',
-                self._get_ssh_config()
-            )
-        )
+class Deployer(object):
+    def __init__(self, client_data,
+                 default_name='containersample',
+                 location='South Central US',
+                 resource_group=None,
+                 storage_account=None,
+                 container_registry=None):
+        self.default_name = default_name
+        self.resources = ResourceHelper(client_data, location)
+        self.resources.resource_client.providers.register('Microsoft.ContainerRegistry')
+        self.resources.resource_client.providers.register('Microsoft.ContainerService')
+        self.storage = StorageHelper(client_data, self.resources, account=storage_account)
+        self.docker = DockerHelper(client_data, self.resources, self.storage,
+                                   registry=container_registry)
 
-
-def download_acr_keys():
-    pass
-
-
-def push_to_acr():
-    # "docker login" ACR (like Karthik does)
-    # docker build && docker push (push a local image to ACR)
-    pass
-
-
-def request_against_container():
-    # "requests.get" the newly created RestAPI.
-    pass
+    def deploy(self):
+        self.docker.create_acs_container()
 
 
 def main():
@@ -216,10 +246,12 @@ def main():
     )
 
     deployer = Deployer(
-        credentials,
-        os.environ['AZURE_SUBSCRIPTION_ID'],
+        ClientData(
+            credentials,
+            os.environ['AZURE_SUBSCRIPTION_ID'],
+        )
     )
-    deployer.ensure_resources()
+    deployer.deploy()
 
 
 if __name__ == '__main__':
