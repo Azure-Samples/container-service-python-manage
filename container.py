@@ -122,13 +122,15 @@ class StorageHelper(object):
 class DockerHelper(object):
     def __init__(self, client_data, resource_helper, storage,
                  registry=None,
+                 container_service=None,
                  default_name='containersample'):
         self.resources = resource_helper
         self.storage = storage
         self.default_name = default_name
-        self.docker_client = docker.from_env()
+        self.docker_client = docker.APIClient()
         self.dns_prefix = Haikunator().haikunate()
         self._registry = registry
+        self._container_service = container_service
         self.registry_client = ContainerRegistryManagementClient(*client_data)
         self.container_client = ContainerServiceClient(*client_data)
 
@@ -163,7 +165,7 @@ class DockerHelper(object):
             print('Got container registry:', registry.name)
         return self._registry
 
-    def login_to_registry(self):
+    def push_to_registry(self, image_name, repo_name):
         print('Logging into Docker registry...')
         registry_credentials = self.registry_client.registries.list_credentials(
             self.resources.group.name,
@@ -176,38 +178,60 @@ class DockerHelper(object):
             registry=self.registry.login_server,
         )
         print('Login successful.')
+        print('Pushing image {}...'.format(image_name))
+        repository_tag = '/'.join([
+            self.registry.login_server,
+            registry_credentials.username,
+            repo_name
+        ])
+        self.docker_client.tag(
+            image_name,
+            repository=repository_tag,
+        )
+        for line in self.docker_client.push(repository=repository_tag,
+                                            stream=True):
+            print(line)
+        print('Push finished.')
 
-    def create_acs_container(self):
-        # Create container on ACS using the ACR link (like the CLI line Karthik does)
+    @property
+    def container_service(self):
         container_ops = self.container_client.container_services
 
-        container_service = ContainerService(
-            self.storage.account.location,
-            ContainerServiceMasterProfile(
-                dns_prefix=self.dns_prefix,
-                count=1
-            ),
-            [
-                ContainerServiceAgentPoolProfile(
-                    name=self.default_name,
-                    vm_size='Standard_D1_v2',
-                    dns_prefix=self.dns_prefix,
+        if self._container_service is None:
+            try:
+                self._container_service = container_ops.get(
+                    self.resources.group.name,
+                    self.default_name,
                 )
-            ],
-            # linux_profile
-            ContainerServiceLinuxProfile(
-                self.default_name,
-                self._get_ssh_config()
-            )
-        )
+            except CloudError:
+                # Create container on ACS using the ACR link (like the CLI line Karthik does)
+                container_service = ContainerService(
+                    self.storage.account.location,
+                    ContainerServiceMasterProfile(
+                        dns_prefix='master' + self.dns_prefix,
+                        count=1
+                    ),
+                    [
+                        ContainerServiceAgentPoolProfile(
+                            name=self.default_name,
+                            vm_size='Standard_D1_v2',
+                            dns_prefix='agent' + self.dns_prefix,
+                        )
+                    ],
+                    # linux_profile
+                    ContainerServiceLinuxProfile(
+                        self.default_name,
+                        self._get_ssh_config()
+                    )
+                )
 
-        container_service_creation = container_ops.create_or_update(
-            resource_group_name=self.resources.group.name,
-            container_service_name=self.default_name,
-            parameters=container_service,
-        )
-        container_service_creation.wait()
-        print(container_service_creation.result())
+                container_service_creation = container_ops.create_or_update(
+                    resource_group_name=self.resources.group.name,
+                    container_service_name=self.default_name,
+                    parameters=container_service,
+                )
+                self._container_service = container_service_creation.result()
+        return self._container_service
 
     def _get_ssh_config(self, key_path=None):
         key_path = key_path or os.path.join(os.environ['HOME'], '.ssh', 'id_rsa.pub')
@@ -235,7 +259,7 @@ class Deployer(object):
                                    registry=container_registry)
 
     def deploy(self):
-        self.docker.create_acs_container()
+        self.docker.push_to_registry('elasticsearch-local', 'elasticsearch')
 
 
 def main():
