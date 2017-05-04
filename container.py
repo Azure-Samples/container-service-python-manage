@@ -10,12 +10,15 @@
 import io
 import json
 import os
+import platform
 import tarfile
 import tempfile
+import signal
 import subprocess
 import sys
 from collections import namedtuple
 from contextlib import contextmanager
+from pprint import pprint
 from subprocess import PIPE
 
 import docker
@@ -95,6 +98,12 @@ class ResourceHelper(object):
             print('Got resource group:', resource_group.name)
             self._resource_group = resource_group
         return self._resource_group
+
+    def list_resources(self):
+        return self.resource_client.resource_groups.list_resources(self.default_name)
+
+    def get_by_id(self, resource_id):
+        return self.resource_client.resources.get_by_id(resource_id, '2017-04-01')
 
 
 class StorageHelper(object):
@@ -327,15 +336,21 @@ class DockerHelper(object):
                 address,
             ]
             print('Opening SSH tunnel. Command:', ' '.join(cmd), sep='\n')
-            proc = subprocess.Popen(cmd, stdin=PIPE)
+            # Create a new console window on Windows, because the background ssh
+            # process seems to be unkillable in Python through normal means.
+            # Opening a new console at least makes it explicit that it persists
+            # after this script finishes running.
+            proc = subprocess.Popen(cmd, stdin=PIPE, creationflags=subprocess.CREATE_NEW_CONSOLE)
         except subprocess.CalledProcessError:
-            print('Your SSH connection to the cluster was unsuccessful. '
+            print('Your SSH tunnel to the cluster was unsuccessful. '
                   'Try `ssh {}` to confirm that you can do so '
                   'without any prompts.'.format(address))
             raise
         yield 'http://{}:{}'.format(host, port)
-        proc.communicate(input=b'exit\n')
-        proc.terminate()
+        if platform.system() == 'Windows':
+            os.kill(proc.pid, signal.CTRL_C_EVENT)
+        else:
+            proc.terminate()
 
     @contextmanager
     def cluster_ssh(self):
@@ -358,41 +373,6 @@ class DockerHelper(object):
             print('Attempting to deploy Docker image {}'.format(docker_tag))
             response = requests.post(
                 '{}/marathon/v2/apps'.format(dcos_endpoint),
-                # json={
-                #     "id": image_name_in_repo,
-                #     "cpus": 0.1,
-                #     "mem": 65,
-                #     "acceptedResourceRoles": [
-                #         "slave_public",
-                #     ],
-                #     "instances": 1,
-                #     "container": {
-                #         "type": "DOCKER",
-                #         "docker": {
-                #             "image": docker_tag,
-                #             "network": "BRIDGE",
-                #             "portMappings": [
-                #                 {
-                #                     "containerPort": 9200,
-                #                     "hostPort": 80,
-                #                     "protocol": "tcp"
-                #                 }
-                #             ]
-                #         },
-                #         "forcePullImage": True
-                #     },
-                #     # "labels": {
-                #     #     "HAPROXY_GROUP": "external",
-                #     #     "HAPROXY_0_VHOST": self.container_service.master_profile.fqdn,
-                #     #     "HAPROXY_0_MODE": "http"
-                #     # },
-                #     "uris":  [
-                #         "file:///mnt/{}/{}".format(
-                #             self.storage.default_share,
-                #             self.credentials_file_name
-                #         )
-                #     ]
-                # }
                 json={
                     "id": image_name_in_repo,
                     "container": {
@@ -421,8 +401,11 @@ class DockerHelper(object):
                     ]
                 }
             )
-            content = json.loads(response.text)
+        content = json.loads(response.text)
+        if 'deployments' in content:
             print('Deployments: ', content['deployments'])
+        else:
+            print(content)
 
 
 class Deployer(object):
@@ -472,9 +455,7 @@ class Deployer(object):
             proc.stdin.write('chmod 600 {}\n'.format(key_file).encode('ascii'))
             proc.stdin.write(b'eval ssh-agent -s\n')
             proc.stdin.write('ssh-add {}\n'.format(key_file).encode('ascii'))
-            mountShares_cmd = 'sh mountShares.sh {}\n'.format(
-                '~/{}'.format(key_file),
-            )
+            mountShares_cmd = 'sh mountShares.sh ~/{}\n'.format(key_file)
             print('Running mountShares on remote master. Cmd:', mountShares_cmd, sep='\n')
             proc.stdin.write(mountShares_cmd.encode('ascii'))
             out, err = proc.communicate(input=b'exit\n')
@@ -487,6 +468,11 @@ class Deployer(object):
         self.docker.push_to_registry('mesosphere/simple-docker', 'simple-docker')
         self.mount_shares()
         self.docker.deploy_container('simple-docker')
+
+    def public_ip(self):
+        for item in self.resources.list_resources():
+            if 'agent-ip' in item.name.lower():
+                return self.resources.get_by_id(item.id).properties['ipAddress']
 
 
 def main():
@@ -503,7 +489,7 @@ def main():
         )
     )
     deployer.deploy()
-
+    print(requests.get('http://{}'.format(deployer.public_ip())).text)
 
 if __name__ == '__main__':
     sys.exit(main())
