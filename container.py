@@ -8,11 +8,18 @@
 """
 
 import io
+import json
 import os
+import tarfile
+import tempfile
+import subprocess
 import sys
 from collections import namedtuple
+from contextlib import contextmanager
+from subprocess import PIPE
 
 import docker
+import requests
 from haikunator import Haikunator
 
 from azure.common.credentials import ServicePrincipalCredentials
@@ -32,6 +39,7 @@ from azure.mgmt.compute.containerservice.models import (
     ContainerServiceAgentPoolProfile,
     ContainerServiceLinuxProfile,
     ContainerServiceMasterProfile,
+    ContainerServiceOrchestratorProfile,
     ContainerServiceSshConfiguration,
     ContainerServiceSshPublicKey,
     ContainerServiceVMSizeTypes,
@@ -49,10 +57,22 @@ from azure.mgmt.storage.models import (
     SkuName as StorageSkuName,
     Kind as StorageKind
 )
+
+from azure.storage.file import FileService
+
 from msrestazure.azure_exceptions import CloudError
 
 
-ClientData = namedtuple('ClientArgs', ['credentials', 'subscription_id'])
+ClientArgs = namedtuple('ClientArgs', ['credentials', 'subscription_id'])
+LoginCredentials = namedtuple('LoginCredentials', ['user', 'password'])
+
+
+@contextmanager
+def working_dir(path):
+    starting_path = os.getcwd()
+    os.chdir(path)
+    yield
+    os.chdir(starting_path)
 
 
 class ResourceHelper(object):
@@ -80,8 +100,10 @@ class ResourceHelper(object):
 class StorageHelper(object):
     def __init__(self, client_data, resource_helper,
                  account=None,
-                 default_name='containersample'):
+                 default_name='containersample',
+                 default_share='share'):
         self.default_name = default_name
+        self.default_share = default_share
         self._account = account
         self._key = os.environ.get('AZURE_STORAGE_KEY')
         self.resource_helper = resource_helper
@@ -96,12 +118,11 @@ class StorageHelper(object):
                 self.resource_helper.group.name,
                 self.default_name,
                 StorageAccountCreateParameters(
-                    location=self.resource_helper.group.location,
                     sku=StorageAccountSku(StorageSkuName.standard_lrs),
                     kind=StorageKind.storage,
+                    location=self.resource_helper.group.location,
                 )
             )
-            storage_creation.wait()
             storage = storage_creation.result()
             print('Got storage account:', storage.name)
             self._account = storage
@@ -118,6 +139,20 @@ class StorageHelper(object):
             self._key = next(iter(storage_keys.keys)).value
         return self._key
 
+    def upload_file(self, path):
+        file_service = FileService(
+            account_name=self.account.name,
+            account_key=self.key,
+        )
+        file_service.create_share(self.default_share)
+        file_service.create_file_from_path(
+            self.default_share,
+            None,
+            os.path.basename(path),
+            path,
+        )
+        return '/'.join([self.default_share, os.path.basename(path)])
+
 
 class DockerHelper(object):
     def __init__(self, client_data, resource_helper, storage,
@@ -131,6 +166,8 @@ class DockerHelper(object):
         self.dns_prefix = Haikunator().haikunate()
         self._registry = registry
         self._container_service = container_service
+        self._registry_credentials = None
+        self.credentials_file_name = 'docker.tar.gz'
         self.registry_client = ContainerRegistryManagementClient(*client_data)
         self.container_client = ContainerServiceClient(*client_data)
 
@@ -165,25 +202,40 @@ class DockerHelper(object):
             print('Got container registry:', registry.name)
         return self._registry
 
-    def push_to_registry(self, image_name, repo_name):
+    @property
+    def registry_credentials(self):
+        if self._registry_credentials is None:
+            all_credentials = self.registry_client.registries.list_credentials(
+                self.resources.group.name,
+                self.registry.name,
+            )
+            first_password = next(iter(all_credentials.passwords)).value
+            self._registry_credentials = LoginCredentials(
+                all_credentials.username,
+                first_password,
+            )
+        return self._registry_credentials
+
+    def _get_docker_repo_tag(self, image_name_in_repo):
+        return '/'.join([
+            self.registry.login_server,
+            self.registry_credentials.user,
+            image_name_in_repo,
+        ])
+
+    def push_to_registry(self, image_name, image_name_in_repo):
+        # This relies on Docker storing credentials in ~/.docker/config.json.
+        # That doesn't happen if there is a "credsStore" entry there.
+        # You need to remove it!
         print('Logging into Docker registry...')
-        registry_credentials = self.registry_client.registries.list_credentials(
-            self.resources.group.name,
-            self.registry.name,
-        )
-        first_password = next(iter(registry_credentials.passwords)).value
         self.docker_client.login(
-            username=registry_credentials.username,
-            password=first_password,
+            username=self.registry_credentials.user,
+            password=self.registry_credentials.password,
             registry=self.registry.login_server,
         )
         print('Login successful.')
         print('Pushing image {}...'.format(image_name))
-        repository_tag = '/'.join([
-            self.registry.login_server,
-            registry_credentials.username,
-            repo_name
-        ])
+        repository_tag = self._get_docker_repo_tag(image_name_in_repo)
         self.docker_client.tag(
             image_name,
             repository=repository_tag,
@@ -192,6 +244,15 @@ class DockerHelper(object):
                                             stream=True):
             print(line)
         print('Push finished.')
+        # https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-acr
+        print('Uploading Docker credentials...')
+        with tempfile.TemporaryDirectory() as temp_dir:
+            creds_path = os.path.join(temp_dir, self.credentials_file_name)
+            with tarfile.open(creds_path, mode='w:gz') as creds_file:
+                with working_dir(os.environ['HOME']):
+                    creds_file.add('.docker')
+            share_path = self.storage.upload_file(creds_path)
+        print('Docker credentials uploaded to share at', share_path)
 
     @property
     def container_service(self):
@@ -204,24 +265,25 @@ class DockerHelper(object):
                     self.default_name,
                 )
             except CloudError:
-                # Create container on ACS using the ACR link (like the CLI line Karthik does)
                 container_service = ContainerService(
-                    self.storage.account.location,
-                    ContainerServiceMasterProfile(
+                    location=self.storage.account.location,
+                    master_profile=ContainerServiceMasterProfile(
                         dns_prefix='master' + self.dns_prefix,
                         count=1
                     ),
-                    [
+                    agent_pool_profiles=[
                         ContainerServiceAgentPoolProfile(
                             name=self.default_name,
                             vm_size='Standard_D1_v2',
                             dns_prefix='agent' + self.dns_prefix,
                         )
                     ],
-                    # linux_profile
-                    ContainerServiceLinuxProfile(
+                    linux_profile=ContainerServiceLinuxProfile(
                         self.default_name,
-                        self._get_ssh_config()
+                        self._get_ssh_config(),
+                    ),
+                    orchestrator_profile=ContainerServiceOrchestratorProfile(
+                        orchestrator_type='DCOS',
                     )
                 )
 
@@ -233,14 +295,134 @@ class DockerHelper(object):
                 self._container_service = container_service_creation.result()
         return self._container_service
 
+    def get_key_path(self):
+        return os.path.join(os.environ['HOME'], '.ssh', 'id_rsa')
+
     def _get_ssh_config(self, key_path=None):
-        key_path = key_path or os.path.join(os.environ['HOME'], '.ssh', 'id_rsa.pub')
+        key_path = key_path or '{}.pub'.format(self.get_key_path())
         with io.open(key_path) as key_file:
             return ContainerServiceSshConfiguration(
                 [
                     ContainerServiceSshPublicKey(key_file.read())
                 ]
             )
+
+    def master_ssh_address(self):
+        url = self.container_service.master_profile.fqdn
+        user = self.default_name
+        return '{}@{}'.format(user, url)
+
+    @contextmanager
+    def cluster_tunnel(self, host='localhost', port=80):
+        """
+        """
+        address = self.master_ssh_address()
+        print(address)
+        try:
+            cmd = [
+                'ssh',
+                '-fNL', '{1}:{0}:{1}'.format(host, port),
+                '-p', '2200',
+                '-i', self.get_key_path(),
+                address,
+            ]
+            print('Opening SSH tunnel. Command:', ' '.join(cmd), sep='\n')
+            proc = subprocess.Popen(cmd, stdin=PIPE)
+        except subprocess.CalledProcessError:
+            print('Your SSH connection to the cluster was unsuccessful. '
+                  'Try `ssh {}` to confirm that you can do so '
+                  'without any prompts.'.format(address))
+            raise
+        yield 'http://{}:{}'.format(host, port)
+        proc.communicate(input=b'exit\n')
+        proc.terminate()
+
+    @contextmanager
+    def cluster_ssh(self):
+        address = self.master_ssh_address()
+        try:
+            cmd = ['ssh', '-i', self.get_key_path(), address]
+            print('Connecting to cluster:', ' '.join(cmd))
+            proc = subprocess.Popen(cmd, stdin=PIPE, stdout=PIPE)
+        except subprocess.CalledProcessError:
+            print('Your SSH connection to the cluster was unsuccessful. '
+                  'Try `ssh {}` to confirm that you can do so '
+                  'without any prompts.'.format(address))
+            raise
+        yield proc
+        proc.terminate()
+
+    def deploy_container(self, image_name_in_repo):
+        with self.cluster_tunnel() as dcos_endpoint:
+            docker_tag = self._get_docker_repo_tag(image_name_in_repo)
+            print('Attempting to deploy Docker image {}'.format(docker_tag))
+            response = requests.post(
+                '{}/marathon/v2/apps'.format(dcos_endpoint),
+                # json={
+                #     "id": image_name_in_repo,
+                #     "cpus": 0.1,
+                #     "mem": 65,
+                #     "acceptedResourceRoles": [
+                #         "slave_public",
+                #     ],
+                #     "instances": 1,
+                #     "container": {
+                #         "type": "DOCKER",
+                #         "docker": {
+                #             "image": docker_tag,
+                #             "network": "BRIDGE",
+                #             "portMappings": [
+                #                 {
+                #                     "containerPort": 9200,
+                #                     "hostPort": 80,
+                #                     "protocol": "tcp"
+                #                 }
+                #             ]
+                #         },
+                #         "forcePullImage": True
+                #     },
+                #     # "labels": {
+                #     #     "HAPROXY_GROUP": "external",
+                #     #     "HAPROXY_0_VHOST": self.container_service.master_profile.fqdn,
+                #     #     "HAPROXY_0_MODE": "http"
+                #     # },
+                #     "uris":  [
+                #         "file:///mnt/{}/{}".format(
+                #             self.storage.default_share,
+                #             self.credentials_file_name
+                #         )
+                #     ]
+                # }
+                json={
+                    "id": image_name_in_repo,
+                    "container": {
+                        "type": "DOCKER",
+                        "docker": {
+                            "image": docker_tag,
+                            "network": "BRIDGE",
+                            "portMappings": [
+                                {
+                                    "hostPort": 80,
+                                    "containerPort": 80,
+                                    "protocol": "tcp"
+                                }
+                            ]
+                        }
+                    },
+                    "acceptedResourceRoles": ["slave_public"],
+                    "instances": 1,
+                    "cpus": 0.1,
+                    "mem": 64,
+                    "uris":  [
+                        "file:///mnt/{}/{}".format(
+                            self.storage.default_share,
+                            self.credentials_file_name
+                        )
+                    ]
+                }
+            )
+            content = json.loads(response.text)
+            print('Deployments: ', content['deployments'])
 
 
 class Deployer(object):
@@ -258,8 +440,53 @@ class Deployer(object):
         self.docker = DockerHelper(client_data, self.resources, self.storage,
                                    registry=container_registry)
 
+    def mount_shares(self):
+        key_file = os.path.basename(self.docker.get_key_path())
+        # https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-fileshare
+        with io.open('cifsMountTemplate.sh') as cifsMount_template, \
+             io.open('cifsMount.sh', 'w', newline='\n') as cifsMount:
+            cifsMount.write(
+                cifsMount_template.read().format(
+                    storageacct=self.storage.account.name,
+                    sharename=self.storage.default_share,
+                    username=self.docker.default_name,
+                    password=self.storage.key,
+                )
+            )
+        subprocess.check_output([
+            'scp',
+            'cifsMount.sh',
+            '{}:./'.format(self.docker.master_ssh_address()),
+        ])
+        subprocess.check_output([
+            'scp',
+            'mountShares.sh',
+            '{}:./'.format(self.docker.master_ssh_address()),
+        ])
+        subprocess.check_output([
+            'scp',
+            self.docker.get_key_path(),
+            '{}:./{}'.format(self.docker.master_ssh_address(), key_file),
+        ])
+        with self.docker.cluster_ssh() as proc:
+            proc.stdin.write('chmod 600 {}\n'.format(key_file).encode('ascii'))
+            proc.stdin.write(b'eval ssh-agent -s\n')
+            proc.stdin.write('ssh-add {}\n'.format(key_file).encode('ascii'))
+            mountShares_cmd = 'sh mountShares.sh {}\n'.format(
+                '~/{}'.format(key_file),
+            )
+            print('Running mountShares on remote master. Cmd:', mountShares_cmd, sep='\n')
+            proc.stdin.write(mountShares_cmd.encode('ascii'))
+            out, err = proc.communicate(input=b'exit\n')
+        if out:
+            print('Stdout: ', out.decode('utf-8'), sep='\n', end='\n\n')
+        if err:
+            print('Stderr: ', err.decode('utf-8'), sep='\n', end='\n\n')
+
     def deploy(self):
-        self.docker.push_to_registry('elasticsearch-local', 'elasticsearch')
+        self.docker.push_to_registry('mesosphere/simple-docker', 'simple-docker')
+        self.mount_shares()
+        self.docker.deploy_container('simple-docker')
 
 
 def main():
@@ -270,7 +497,7 @@ def main():
     )
 
     deployer = Deployer(
-        ClientData(
+        ClientArgs(
             credentials,
             os.environ['AZURE_SUBSCRIPTION_ID'],
         )
