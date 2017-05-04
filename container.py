@@ -18,7 +18,6 @@ import subprocess
 import sys
 from collections import namedtuple
 from contextlib import contextmanager
-from pprint import pprint
 from subprocess import PIPE
 
 import docker
@@ -45,10 +44,8 @@ from azure.mgmt.compute.containerservice.models import (
     ContainerServiceOrchestratorProfile,
     ContainerServiceSshConfiguration,
     ContainerServiceSshPublicKey,
-    ContainerServiceVMSizeTypes,
 )
 
-from azure.mgmt.resource.features import FeatureClient
 from azure.mgmt.resource.resources import ResourceManagementClient
 
 from azure.mgmt.storage import (
@@ -325,6 +322,7 @@ class DockerHelper(object):
     def cluster_tunnel(self, host='localhost', port=80):
         """
         """
+        # Might have a Python module (sshtunnel) for this
         address = self.master_ssh_address()
         print(address)
         try:
@@ -436,6 +434,7 @@ class Deployer(object):
                     password=self.storage.key,
                 )
             )
+        # Might already have a python module (scp) for this
         subprocess.check_output([
             'scp',
             'cifsMount.sh',
