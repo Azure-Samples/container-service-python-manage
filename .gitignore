@@ -1,2 +1,3 @@
 .vscode
 cifsMount.sh
+__pycache__
