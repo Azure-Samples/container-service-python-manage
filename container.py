@@ -46,21 +46,10 @@ from azure.mgmt.compute.containerservice.models import (
     ContainerServiceSshPublicKey,
 )
 
-from azure.mgmt.storage import (
-    StorageManagementClient,
-)
-from azure.mgmt.storage.models import (
-    StorageAccountCreateParameters,
-    Sku as StorageAccountSku,
-    SkuName as StorageSkuName,
-    Kind as StorageKind
-)
-
-from azure.storage.file import FileService
-
 from msrestazure.azure_exceptions import CloudError
 
 from resource_helper import ResourceHelper
+from storage_helper import StorageHelper
 
 
 ClientArgs = namedtuple('ClientArgs', ['credentials', 'subscription_id'])
@@ -73,63 +62,6 @@ def working_dir(path):
     os.chdir(path)
     yield
     os.chdir(starting_path)
-
-
-class StorageHelper(object):
-    def __init__(self, client_data, resource_helper,
-                 account=None,
-                 default_name='containersample',
-                 default_share='share'):
-        self.default_name = default_name
-        self.default_share = default_share
-        self._account = account
-        self._key = os.environ.get('AZURE_STORAGE_KEY')
-        self.resource_helper = resource_helper
-        self.client = StorageManagementClient(*client_data)
-
-    @property
-    def account(self):
-        if self._account is None:
-            print('Creating storage account...')
-            # OK to create storage account even if it already exists
-            storage_creation = self.client.storage_accounts.create(
-                self.resource_helper.group.name,
-                self.default_name,
-                StorageAccountCreateParameters(
-                    sku=StorageAccountSku(StorageSkuName.standard_lrs),
-                    kind=StorageKind.storage,
-                    location=self.resource_helper.group.location,
-                )
-            )
-            storage = storage_creation.result()
-            print('Got storage account:', storage.name)
-            self._account = storage
-        return self._account
-
-    @property
-    def key(self):
-        """Get the first storage key."""
-        if self._key is None:
-            storage_keys = self.client.storage_accounts.list_keys(
-                self.resource_helper.group.name,
-                self.account.name
-            )
-            self._key = next(iter(storage_keys.keys)).value
-        return self._key
-
-    def upload_file(self, path):
-        file_service = FileService(
-            account_name=self.account.name,
-            account_key=self.key,
-        )
-        file_service.create_share(self.default_share)
-        file_service.create_file_from_path(
-            self.default_share,
-            None,
-            os.path.basename(path),
-            path,
-        )
-        return '/'.join([self.default_share, os.path.basename(path)])
 
 
 class DockerHelper(object):
