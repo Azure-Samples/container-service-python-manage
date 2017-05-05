@@ -1,3 +1,5 @@
+"""Streamline managing a single Azure resource group."""
+
 from azure.mgmt.resource.resources import ResourceManagementClient
 
 
