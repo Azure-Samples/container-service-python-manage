@@ -44,6 +44,7 @@ LoginCredentials = namedtuple('LoginCredentials', ['user', 'password'])
 
 @contextmanager
 def working_dir(path):
+    """Switch the working dir to a given dir temporarily."""
     starting_path = os.getcwd()
     os.chdir(path)
     yield
