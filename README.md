@@ -98,6 +98,3 @@ At a high level, those steps are as follows:
 
     To go along with the registry mentioned in the previous step, this code creates a container
     service to manage deployment of containers to a cluster of virtual machines.
-
-<a id="list-groups"></a>
-### List resource groups
