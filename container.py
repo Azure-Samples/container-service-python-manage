@@ -83,7 +83,7 @@ class Deployer(object):
             print('Stderr: ', err.decode('utf-8'), sep='\n', end='\n\n')
 
     def deploy(self):
-        self.container.push_to_registry('mesosphere/simple-container', 'simple-container')
+        self.container.push_to_registry('mesosphere/simple-docker', 'simple-container')
         self.mount_shares()
         self.container.deploy_container('simple-container')
 
