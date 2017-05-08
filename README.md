@@ -194,3 +194,19 @@ At a high level, those steps are as follows:
 
 <a id="troubleshooting"></a>
 ## Notes and troubleshooting
+
+
+## More information
+
+Here are some helpful links:
+
+- [Azure Python Development Center](https://azure.microsoft.com/develop/python/)
+- [Azure Container Registry documentation](https://azure.microsoft.com/en-us/services/container-registry/)
+- [Azure Container Service documentation](https://azure.microsoft.com/en-us/services/container-service/)
+
+If you don't have a Microsoft Azure subscription you can get a FREE trial account [here](http://go.microsoft.com/fwlink/?LinkId=330212).
+
+---
+
+This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+
