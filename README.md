@@ -142,6 +142,8 @@ At a high level, those steps are as follows:
     See [this documentation](https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-acr)
     for details on this process.
 
+    Please also see [this note](#docker-creds) to make sure this step does the right thing!
+
 1.  Push your Docker image to the container registry.
 
     By default, `container.py` attempts to push the local image `mesosphere/simple-docker`
@@ -195,6 +197,27 @@ At a high level, those steps are as follows:
 <a id="troubleshooting"></a>
 ## Notes and troubleshooting
 
+<a id="docker-creds"></a>
+### Docker credential storing
+
+In the "Upload Docker credentials into the file share" step,
+the example zips up the `.docker` directory so that it can be used
+in deployment of the Docker container.
+This works because the `docker login` command edits `.docker/config.json`
+to add the login credentials to it,
+so that they can be used to pull the image for the container
+from the private registry.
+
+On Windows, at least, and probably OS X as well,
+Docker will attempt to use the OS's credential store
+for your container registry login information,
+rather than storing it in your `.docker/config.json` file.
+This is probably more secure in general, but it prevents that step
+from working correctly since it expects the credentials to be in `config.json`.
+
+To make this work, you must edit `.docker/config.json`
+and remove the "credsStore" entry from the JSON there.
+(Make sure that what you leave is still valid JSON!)
 
 ## More information
 
