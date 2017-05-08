@@ -1,12 +1,7 @@
-"""
-- Create ACR account (ACR SDK)
-- Download keys (ACR SDK)
-- "docker login" ACR (like Karthik does)
-- docker build && docker push (push a local image to ACR)
-- Create container on ACS using the ACR link (like the CLI line Karthik does)
-- "requests.get" the newly created RestAPI.
+"""Deploy a Docker container from an Azure registry to a cluster.
 """
 
+import argparse
 import io
 import os
 import subprocess
@@ -22,17 +17,31 @@ from storage_helper import StorageHelper
 from container_helper import ContainerHelper
 
 
+DEFAULT_DOCKER_IMAGE = 'mesosphere/simple-docker'
+
+
 ClientArgs = namedtuple('ClientArgs', ['credentials', 'subscription_id'])
+
+
+def set_up_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--image', default=DEFAULT_DOCKER_IMAGE,
+        help='Docker image to deploy.'
+    )
+    return parser
 
 
 class Deployer(object):
     def __init__(self, client_data,
                  default_name='containersample',
                  location='South Central US',
+                 docker_image=DEFAULT_DOCKER_IMAGE,
                  resource_group=None,
                  storage_account=None,
                  container_registry=None):
         self.default_name = default_name
+        self.docker_image = docker_image
         self.resources = ResourceHelper(client_data, location, resource_group=resource_group)
         self.resources.resource_client.providers.register('Microsoft.ContainerRegistry')
         self.resources.resource_client.providers.register('Microsoft.ContainerService')
@@ -83,9 +92,10 @@ class Deployer(object):
             print('Stderr: ', err.decode('utf-8'), sep='\n', end='\n\n')
 
     def deploy(self):
-        self.container.push_to_registry('mesosphere/simple-docker', 'simple-container')
+        registry_image_name = self.docker_image.split('/')[-1]
+        self.container.push_to_registry(self.docker_image, registry_image_name)
         self.mount_shares()
-        self.container.deploy_container('simple-container')
+        self.container.deploy_container(registry_image_name)
 
     def public_ip(self):
         for item in self.resources.list_resources():
@@ -94,6 +104,9 @@ class Deployer(object):
 
 
 def main():
+    parser = set_up_parser()
+    args = parser.parse_args()
+
     credentials = ServicePrincipalCredentials(
         client_id=os.environ['AZURE_CLIENT_ID'],
         secret=os.environ['AZURE_CLIENT_SECRET'],
@@ -104,7 +117,8 @@ def main():
         ClientArgs(
             credentials,
             os.environ['AZURE_SUBSCRIPTION_ID'],
-        )
+        ),
+        docker_image=args.image,
     )
     deployer.deploy()
     print(requests.get('http://{}'.format(deployer.public_ip())).text)
