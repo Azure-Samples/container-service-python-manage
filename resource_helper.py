@@ -45,4 +45,6 @@ class ResourceHelper(object):
     def get_by_id(self, resource_id):
         """Get a resource by id from this helper's resource group."""
         return self.resource_client.resources.get_by_id(resource_id, '2017-04-01')
-
+    
+    def delete_group(self):
+        self.resource_client.resource_groups.delete(self.default_name)
