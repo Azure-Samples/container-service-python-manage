@@ -65,6 +65,14 @@ using the [Azure SDK for Python](http://azure-sdk-for-python.readthedocs.io/en/l
 [PowerShell](https://azure.microsoft.com/documentation/articles/resource-group-authenticate-service-principal/)
 or [the portal](https://azure.microsoft.com/documentation/articles/resource-group-create-service-principal-portal/).
 
+    Retrieve the application ID (a.k.a. client ID),
+    authentication key (a.k.a. client secret),
+    tenant ID and subscription ID from the Azure portal for use
+    in the next step.
+    [This document](https://docs.microsoft.com/en-us/azure/azure-resource-manager/resource-group-create-service-principal-portal#get-application-id-and-authentication-key)
+    describes where to find them (besides the subscription ID,
+    which is in the "Overview" section of the "Subscriptions" blade.)
+
 1.  Export these environment variables into your current shell. 
 
     ```
