@@ -212,8 +212,9 @@ On Windows, at least, and probably OS X as well,
 Docker will attempt to use the OS's credential store
 for your container registry login information,
 rather than storing it in your `.docker/config.json` file.
-This is probably more secure in general, but it prevents that step
-from working correctly since it expects the credentials to be in `config.json`.
+This is probably more secure in general,
+but it prevents the credential upload from working correctly
+since it expects the credentials to be in `config.json`.
 
 To make this work, you must edit `.docker/config.json`
 and remove the "credsStore" entry from the JSON there.
