@@ -220,6 +220,15 @@ To make this work, you must edit `.docker/config.json`
 and remove the "credsStore" entry from the JSON there.
 (Make sure that what you leave is still valid JSON!)
 
+### Cleaning up
+
+This example does not clean up after itself:
+after it finishes running,
+all the Azure entities it created will still exist.
+To clean up,
+simply delete the resource group it created.
+By default that group is named 'containersample-group'.
+
 ## More information
 
 Here are some helpful links:
