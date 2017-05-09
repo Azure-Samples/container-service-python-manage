@@ -62,7 +62,6 @@ class Deployer(object):
                     password=self.storage.key,
                 )
             )
-        # Might already have a python module (scp) for this
         subprocess.check_output([
             'scp',
             'cifsMount.sh',
@@ -93,7 +92,7 @@ class Deployer(object):
 
     def deploy(self):
         registry_image_name = self.docker_image.split('/')[-1]
-        self.container.push_to_registry(self.docker_image, registry_image_name)
+        self.container.setup_registry(self.docker_image, registry_image_name)
         self.mount_shares()
         self.container.deploy_container(registry_image_name)
 

@@ -60,7 +60,6 @@ class ContainerHelper(object):
         self.resources = resource_helper
         self.storage = storage
         self.default_name = default_name
-        self.docker_client = docker.APIClient()
         self.dns_prefix = Haikunator().haikunate()
         self._registry = registry
         self._container_service = container_service
@@ -121,28 +120,43 @@ class ContainerHelper(object):
             image_name_in_repo,
         ])
 
-    def push_to_registry(self, image_name, image_name_in_repo):
-        # This relies on Docker storing credentials in ~/.docker/config.json.
-        # That doesn't happen if there is a "credsStore" entry there.
-        # You need to remove it!
+    @contextmanager
+    def docker_session(self):
         print('Logging into Docker registry...')
-        self.docker_client.login(
+        docker_client = docker.APIClient()
+        docker_client.login(
             username=self.registry_credentials.user,
             password=self.registry_credentials.password,
             registry=self.registry.login_server,
         )
         print('Login successful.')
+        yield docker_client
+        print('Logging out of Docker registry.')
+        # Python docker client doesn't have .logout(), so use the CLI
+        subprocess.check_call(['docker', 'logout'])
+
+    def _push_to_registry(self, docker_client, image_name, image_name_in_repo):
         print('Pushing image {}...'.format(image_name))
         repository_tag = self._get_docker_repo_tag(image_name_in_repo)
-        self.docker_client.tag(
+        docker_client.tag(
             image_name,
             repository=repository_tag,
         )
-        for line in self.docker_client.push(repository=repository_tag,
-                                            stream=True):
+        for line in docker_client.push(repository=repository_tag,
+                                       stream=True):
             print(line)
         print('Push finished.')
-        # https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-acr
+
+    def _upload_docker_creds(self, docker_client):
+        """Upload credentials for a Docker registry to an Azure share.
+
+        Official docs on this process:
+        https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-acr
+
+        This relies on Docker storing credentials in ~/.docker/config.json.
+        That doesn't happen if there is a "credsStore" entry there.
+        You need to remove it!
+        """
         print('Uploading Docker credentials...')
         with tempfile.TemporaryDirectory() as temp_dir:
             creds_path = os.path.join(temp_dir, self.credentials_file_name)
@@ -151,6 +165,12 @@ class ContainerHelper(object):
                     creds_file.add('.docker')
             share_path = self.storage.upload_file(creds_path)
         print('Docker credentials uploaded to share at', share_path)
+
+    def setup_registry(self, image_name, image_name_in_repo):
+        """Push an image to a registry and put the registry credentials on a share."""
+        with self.docker_session() as docker_client:
+            self._push_to_registry(docker_client, image_name, image_name_in_repo)
+            self._upload_docker_creds(docker_client)
 
     @property
     def container_service(self):
