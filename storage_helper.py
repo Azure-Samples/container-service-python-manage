@@ -40,7 +40,7 @@ class StorageHelper(object):
     @property
     def account(self):
         """Return the managed StorageAccounts object.
-        
+
         If no such account exists, create it first.
         """
         if self._account is None:
