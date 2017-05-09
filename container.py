@@ -14,7 +14,7 @@ from azure.common.credentials import ServicePrincipalCredentials
 
 from resource_helper import ResourceHelper
 from storage_helper import StorageHelper
-from container_helper import ContainerHelper
+from container_helper import ContainerHelper, ContainerRegistryHelper
 
 
 DEFAULT_DOCKER_IMAGE = 'mesosphere/simple-docker'
@@ -46,8 +46,13 @@ class Deployer(object):
         self.resources.resource_client.providers.register('Microsoft.ContainerRegistry')
         self.resources.resource_client.providers.register('Microsoft.ContainerService')
         self.storage = StorageHelper(client_data, self.resources, account=storage_account)
-        self.container = ContainerHelper(client_data, self.resources, self.storage,
-                                         registry=container_registry)
+        self.container_registry = ContainerRegistryHelper(
+            client_data,
+            self.resources,
+            self.storage,
+            container_registry
+        )
+        self.container_service = ContainerHelper(client_data, self.resources)
 
     def _format_proc_output(self, header, output):
         if output:
@@ -62,7 +67,7 @@ class Deployer(object):
             )
 
     def mount_shares(self):
-        key_file = os.path.basename(self.container.get_key_path())
+        key_file = os.path.basename(self.container_service.get_key_path())
         # https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-fileshare
         with io.open('cifsMountTemplate.sh') as cifsMount_template, \
              io.open('cifsMount.sh', 'w', newline='\n') as cifsMount:
@@ -70,26 +75,26 @@ class Deployer(object):
                 cifsMount_template.read().format(
                     storageacct=self.storage.account.name,
                     sharename=self.storage.default_share,
-                    username=self.container.default_name,
+                    username=self.container_registry.default_name,
                     password=self.storage.key,
                 )
             )
         subprocess.check_output([
             'scp',
             'cifsMount.sh',
-            '{}:./'.format(self.container.master_ssh_login()),
+            '{}:./'.format(self.container_service.master_ssh_login()),
         ])
         subprocess.check_output([
             'scp',
             'mountShares.sh',
-            '{}:./'.format(self.container.master_ssh_login()),
+            '{}:./'.format(self.container_service.master_ssh_login()),
         ])
         subprocess.check_output([
             'scp',
-            self.container.get_key_path(),
-            '{}:./{}'.format(self.container.master_ssh_login(), key_file),
+            self.container_service.get_key_path(),
+            '{}:./{}'.format(self.container_service.master_ssh_login(), key_file),
         ])
-        with self.container.cluster_ssh() as proc:
+        with self.container_service.cluster_ssh() as proc:
             proc.stdin.write('chmod 600 {}\n'.format(key_file).encode('ascii'))
             proc.stdin.write(b'eval ssh-agent -s\n')
             proc.stdin.write('ssh-add {}\n'.format(key_file).encode('ascii'))
@@ -102,9 +107,12 @@ class Deployer(object):
 
     def deploy(self):
         registry_image_name = self.docker_image.split('/')[-1]
-        self.container.setup_registry(self.docker_image, registry_image_name)
+        self.container_registry.setup_image(self.docker_image, registry_image_name)
         self.mount_shares()
-        self.container.deploy_container(registry_image_name)
+        self.container_service.deploy_container_from_registry(
+            self.container_registry.get_docker_repo_tag(registry_image_name),
+            self.container_registry
+        )
 
     def public_ip(self):
         for item in self.resources.list_resources():

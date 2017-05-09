@@ -1,10 +1,8 @@
 import io
 import json
 import os
-import platform
 import tarfile
 import tempfile
-import signal
 from collections import namedtuple
 from contextlib import contextmanager
 
@@ -52,21 +50,17 @@ def working_dir(path):
     os.chdir(starting_path)
 
 
-class ContainerHelper(object):
+class ContainerRegistryHelper(object):
     def __init__(self, client_data, resource_helper, storage,
                  registry=None,
-                 container_service=None,
                  default_name='containersample'):
         self.resources = resource_helper
         self.storage = storage
         self.default_name = default_name
-        self.dns_prefix = Haikunator().haikunate()
         self._registry = registry
-        self._container_service = container_service
-        self._registry_credentials = None
+        self._credentials = None
         self.credentials_file_name = 'docker.tar.gz'
         self.registry_client = ContainerRegistryManagementClient(*client_data)
-        self.container_client = ContainerServiceClient(*client_data)
 
     @property
     def registry(self):
@@ -93,30 +87,29 @@ class ContainerHelper(object):
                         ),
                     )
                 )
-                registry_creation.wait()
                 registry = registry_creation.result()
             self._registry = registry
             print('Got container registry:', registry.name)
         return self._registry
 
     @property
-    def registry_credentials(self):
-        if self._registry_credentials is None:
+    def credentials(self):
+        if self._credentials is None:
             all_credentials = self.registry_client.registries.list_credentials(
                 self.resources.group.name,
                 self.registry.name,
             )
             first_password = next(iter(all_credentials.passwords)).value
-            self._registry_credentials = LoginCredentials(
+            self._credentials = LoginCredentials(
                 all_credentials.username,
                 first_password,
             )
-        return self._registry_credentials
+        return self._credentials
 
-    def _get_docker_repo_tag(self, image_name_in_repo):
+    def get_docker_repo_tag(self, image_name_in_repo):
         return '/'.join([
             self.registry.login_server,
-            self.registry_credentials.user,
+            self.credentials.user,
             image_name_in_repo,
         ])
 
@@ -131,8 +124,8 @@ class ContainerHelper(object):
         print('Logging into Docker registry...')
         subprocess.check_call([
             'docker', 'login',
-            '-u', self.registry_credentials.user,
-            '-p', self.registry_credentials.password,
+            '-u', self.credentials.user,
+            '-p', self.credentials.password,
             self.registry.login_server,
         ])
         yield docker.APIClient()
@@ -141,7 +134,7 @@ class ContainerHelper(object):
 
     def _push_to_registry(self, docker_client, image_name, image_name_in_repo):
         print('Pushing image {}...'.format(image_name))
-        repository_tag = self._get_docker_repo_tag(image_name_in_repo)
+        repository_tag = self.get_docker_repo_tag(image_name_in_repo)
         docker_client.tag(
             image_name,
             repository=repository_tag,
@@ -152,7 +145,7 @@ class ContainerHelper(object):
                 print(json.dumps(json.loads(line)))
         print('Push finished.')
 
-    def _upload_docker_creds(self, docker_client):
+    def _upload_docker_creds(self):
         """Upload credentials for a Docker registry to an Azure share.
 
         Official docs on this process:
@@ -171,11 +164,22 @@ class ContainerHelper(object):
             share_path = self.storage.upload_file(creds_path)
         print('Docker credentials uploaded to share at', share_path)
 
-    def setup_registry(self, image_name, image_name_in_repo):
+    def setup_image(self, image_name, image_name_in_repo):
         """Push an image to a registry and put the registry credentials on a share."""
         with self.docker_session() as docker_client:
             self._push_to_registry(docker_client, image_name, image_name_in_repo)
-            self._upload_docker_creds(docker_client)
+            self._upload_docker_creds()
+
+
+class ContainerHelper(object):
+    def __init__(self, client_data, resource_helper,
+                 container_service=None,
+                 default_name='containersample'):
+        self.resources = resource_helper
+        self.default_name = default_name
+        self.dns_prefix = Haikunator().haikunate()
+        self._container_service = container_service
+        self.container_client = ContainerServiceClient(*client_data)
 
     @property
     def container_service(self):
@@ -189,7 +193,7 @@ class ContainerHelper(object):
                 )
             except CloudError:
                 container_service = ContainerService(
-                    location=self.storage.account.location,
+                    location=self.resources.group.location,
                     master_profile=ContainerServiceMasterProfile(
                         dns_prefix='master' + self.dns_prefix,
                         count=1
@@ -262,14 +266,13 @@ class ContainerHelper(object):
         yield proc
         proc.terminate()
 
-    def deploy_container(self, image_name_in_repo):
+    def deploy_container_from_registry(self, docker_tag, registry_helper):
         with SSHTunnelForwarder(**self.ssh_tunnel_args()) as tunnel:
-            docker_tag = self._get_docker_repo_tag(image_name_in_repo)
             print('Attempting to deploy Docker image {}'.format(docker_tag))
             response = requests.post(
                 'http://{}:{}/marathon/v2/apps'.format(*tunnel.local_bind_address),
                 json={
-                    "id": image_name_in_repo,
+                    "id": docker_tag.split('/')[-1],
                     "container": {
                         "type": "DOCKER",
                         "docker": {
@@ -290,8 +293,8 @@ class ContainerHelper(object):
                     "mem": 64,
                     "uris":  [
                         "file:///mnt/{}/{}".format(
-                            self.storage.default_share,
-                            self.credentials_file_name
+                            registry_helper.storage.default_share,
+                            registry_helper.credentials_file_name
                         )
                     ]
                 }
