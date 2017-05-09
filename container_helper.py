@@ -122,18 +122,22 @@ class ContainerHelper(object):
 
     @contextmanager
     def docker_session(self):
+        """Log in and out of a Docker registry inside a with block.
+
+        This uses the Docker CLI rather than the Python module,
+        as the module claims not to modify the Docker config.json,
+        which we need for credential distribution to the cluster.
+        """
         print('Logging into Docker registry...')
-        docker_client = docker.APIClient()
-        docker_client.login(
-            username=self.registry_credentials.user,
-            password=self.registry_credentials.password,
-            registry=self.registry.login_server,
-        )
-        print('Login successful.')
-        yield docker_client
+        subprocess.check_call([
+            'docker', 'login',
+            '-u', self.registry_credentials.user,
+            '-p', self.registry_credentials.password,
+            self.registry.login_server,
+        ])
+        yield docker.APIClient()
         print('Logging out of Docker registry.')
-        # Python docker client doesn't have .logout(), so use the CLI
-        subprocess.check_call(['docker', 'logout'])
+        subprocess.check_call(['docker', 'logout', self.registry.login_server])
 
     def _push_to_registry(self, docker_client, image_name, image_name_in_repo):
         print('Pushing image {}...'.format(image_name))
@@ -142,9 +146,10 @@ class ContainerHelper(object):
             image_name,
             repository=repository_tag,
         )
-        for line in docker_client.push(repository=repository_tag,
-                                       stream=True):
-            print(line)
+        for stream_line in docker_client.push(repository=repository_tag,
+                                              stream=True):
+            for line in stream_line.decode('utf-8').strip().split('\n'):
+                print(json.dumps(json.loads(line)))
         print('Push finished.')
 
     def _upload_docker_creds(self, docker_client):

@@ -49,6 +49,18 @@ class Deployer(object):
         self.container = ContainerHelper(client_data, self.resources, self.storage,
                                          registry=container_registry)
 
+    def _format_proc_output(self, header, output):
+        if output:
+            print(
+                header,
+                '\n'.join([
+                    '    {}'.format(line)
+                    for line in output.decode('utf-8').split('\n')
+                ]),
+                sep='\n',
+                end='\n\n'
+            )
+
     def mount_shares(self):
         key_file = os.path.basename(self.container.get_key_path())
         # https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-fileshare
@@ -85,10 +97,8 @@ class Deployer(object):
             print('Running mountShares on remote master. Cmd:', mountShares_cmd, sep='\n')
             proc.stdin.write(mountShares_cmd.encode('ascii'))
             out, err = proc.communicate(input=b'exit\n')
-        if out:
-            print('Stdout: ', out.decode('utf-8'), sep='\n', end='\n\n')
-        if err:
-            print('Stderr: ', err.decode('utf-8'), sep='\n', end='\n\n')
+        self._format_proc_output('Stdout:', out)
+        self._format_proc_output('Stderr:', err)
 
     def deploy(self):
         registry_image_name = self.docker_image.split('/')[-1]
