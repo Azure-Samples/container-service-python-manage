@@ -18,7 +18,7 @@ class StorageHelper(object):
     """Handle details related to a single storage account and share.
 
     Instantiate this object with information sufficient to
-    uniquely identify a storage account and share within it.
+    uniquely identify a storage account and a file share within it.
     Then .account can be used to retrieve the Azure SDK for Python
     object corresponding to the account, and .key can be used to
     get an access key for it.
