@@ -14,7 +14,8 @@ from azure.common.credentials import ServicePrincipalCredentials
 
 from resource_helper import ResourceHelper
 from storage_helper import StorageHelper
-from container_helper import ContainerHelper, ContainerRegistryHelper
+from container_helper import ContainerHelper
+from registry_helper import ContainerRegistryHelper
 
 
 DEFAULT_DOCKER_IMAGE = 'mesosphere/simple-docker'
