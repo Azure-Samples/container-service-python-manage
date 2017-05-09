@@ -14,6 +14,7 @@ from subprocess import PIPE
 import docker
 import requests
 from haikunator import Haikunator
+from sshtunnel import SSHTunnelForwarder
 
 from azure.mgmt.containerregistry import (
     ContainerRegistryManagementClient,
@@ -205,63 +206,43 @@ class ContainerHelper(object):
             )
 
     def master_ssh_address(self):
-        url = self.container_service.master_profile.fqdn
-        user = self.default_name
-        return '{}@{}'.format(user, url)
+        return self.container_service.master_profile.fqdn
 
-    @contextmanager
-    def cluster_tunnel(self, host='localhost', port=80):
-        """
-        """
-        # Might have a Python module (sshtunnel) for this
-        address = self.master_ssh_address()
-        print(address)
-        try:
-            cmd = [
-                'ssh',
-                '-fNL', '{1}:{0}:{1}'.format(host, port),
-                '-p', '2200',
-                '-i', self.get_key_path(),
-                address,
-            ]
-            print('Opening SSH tunnel. Command:', ' '.join(cmd), sep='\n')
-            # Create a new console window on Windows, because the background ssh
-            # process seems to be unkillable in Python through normal means.
-            # Opening a new console at least makes it explicit that it persists
-            # after this script finishes running.
-            proc = subprocess.Popen(cmd, stdin=PIPE, creationflags=subprocess.CREATE_NEW_CONSOLE)
-        except subprocess.CalledProcessError:
-            print('Your SSH tunnel to the cluster was unsuccessful. '
-                  'Try `ssh {}` to confirm that you can do so '
-                  'without any prompts.'.format(address))
-            raise
-        yield 'http://{}:{}'.format(host, port)
-        if platform.system() == 'Windows':
-            os.kill(proc.pid, signal.CTRL_C_EVENT)
-        else:
-            proc.terminate()
+    def master_ssh_login(self):
+        return '{}@{}'.format(
+            self.default_name,
+            self.master_ssh_address()
+        )
+
+    def ssh_tunnel_args(self, host='localhost', port=80):
+        return dict(
+            ssh_address_or_host=(self.master_ssh_address(), 2200),
+            ssh_username=self.default_name,
+            remote_bind_address=(host, port),
+            local_bind_address=(host, port),
+            ssh_pkey=self.get_key_path(),
+        )
 
     @contextmanager
     def cluster_ssh(self):
-        address = self.master_ssh_address()
         try:
-            cmd = ['ssh', '-i', self.get_key_path(), address]
+            cmd = ['ssh', '-i', self.get_key_path(), self.master_ssh_login()]
             print('Connecting to cluster:', ' '.join(cmd))
             proc = subprocess.Popen(cmd, stdin=PIPE, stdout=PIPE)
         except subprocess.CalledProcessError:
             print('Your SSH connection to the cluster was unsuccessful. '
                   'Try `ssh {}` to confirm that you can do so '
-                  'without any prompts.'.format(address))
+                  'without any prompts.'.format(self.master_ssh_login()))
             raise
         yield proc
         proc.terminate()
 
     def deploy_container(self, image_name_in_repo):
-        with self.cluster_tunnel() as dcos_endpoint:
+        with SSHTunnelForwarder(**self.ssh_tunnel_args()) as tunnel:
             docker_tag = self._get_docker_repo_tag(image_name_in_repo)
             print('Attempting to deploy Docker image {}'.format(docker_tag))
             response = requests.post(
-                '{}/marathon/v2/apps'.format(dcos_endpoint),
+                'http://{}:{}/marathon/v2/apps'.format(*tunnel.local_bind_address),
                 json={
                     "id": image_name_in_repo,
                     "container": {

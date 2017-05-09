@@ -66,17 +66,17 @@ class Deployer(object):
         subprocess.check_output([
             'scp',
             'cifsMount.sh',
-            '{}:./'.format(self.container.master_ssh_address()),
+            '{}:./'.format(self.container.master_ssh_login()),
         ])
         subprocess.check_output([
             'scp',
             'mountShares.sh',
-            '{}:./'.format(self.container.master_ssh_address()),
+            '{}:./'.format(self.container.master_ssh_login()),
         ])
         subprocess.check_output([
             'scp',
             self.container.get_key_path(),
-            '{}:./{}'.format(self.container.master_ssh_address(), key_file),
+            '{}:./{}'.format(self.container.master_ssh_login(), key_file),
         ])
         with self.container.cluster_ssh() as proc:
             proc.stdin.write('chmod 600 {}\n'.format(key_file).encode('ascii'))
