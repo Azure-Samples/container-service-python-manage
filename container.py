@@ -67,7 +67,23 @@ class Deployer(object):
                 end='\n\n'
             )
 
+    def scp_to_container_master(self, local_path, remote_path):
+        address = self.container_service.master_ssh_login()
+        try:
+            subprocess.check_output([
+                'scp',
+                local_path,
+                '{}:./{}'.format(address, remote_path)
+            ])
+        except subprocess.CalledProcessError:
+            print('It looks like an scp command failed.')
+            print('You might need to verify the host key manually.')
+            print('Please run the following command to do so:')
+            print('ssh {}'.format(address))
+            raise
+
     def mount_shares(self):
+        print('Mounting file share on all machines in cluster...')
         key_file = os.path.basename(self.container_service.get_key_path())
         # https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-fileshare
         with io.open('cifsMountTemplate.sh') as cifsMount_template, \
@@ -80,21 +96,9 @@ class Deployer(object):
                     password=self.storage.key,
                 )
             )
-        subprocess.check_output([
-            'scp',
-            'cifsMount.sh',
-            '{}:./'.format(self.container_service.master_ssh_login()),
-        ])
-        subprocess.check_output([
-            'scp',
-            'mountShares.sh',
-            '{}:./'.format(self.container_service.master_ssh_login()),
-        ])
-        subprocess.check_output([
-            'scp',
-            self.container_service.get_key_path(),
-            '{}:./{}'.format(self.container_service.master_ssh_login(), key_file),
-        ])
+        self.scp_to_container_master('cifsMount.sh', '')
+        self.scp_to_container_master('mountShares.sh', '')
+        self.scp_to_container_master(self.container_service.get_key_path(), key_file)
         with self.container_service.cluster_ssh() as proc:
             proc.stdin.write('chmod 600 {}\n'.format(key_file).encode('ascii'))
             proc.stdin.write(b'eval ssh-agent -s\n')
