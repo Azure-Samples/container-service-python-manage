@@ -195,9 +195,31 @@ At a high level, those steps are as follows:
     Docker container running a Web server on a cluster in the Azure cloud!
 
 <a id="troubleshooting"></a>
+
 ## Notes and troubleshooting
 
+### SSH configuration
+
+Your first attempt to non-interactively connect to your Azure cluster
+may fail because you need to verify the host.
+
+If this happens, you'll see a message like this before the Python traceback:
+
+```
+The authenticity of host '<SOME_URL> (<SOME_IP>)' can't be established.
+ECDSA key fingerprint is SHA256:<SOME_GIBBERISH>.
+Are you sure you want to continue connecting (yes/no)?
+Host key verification failed.
+```
+
+To resolve this, ssh to `<SOME_URL>` manually
+and confirm the connection
+after doing any necessary verification.
+Then the host will be stored in your `known_hosts` file
+and you should be able to connect non-interactively in the future.
+
 <a id="docker-creds"></a>
+
 ### Docker credential storing
 
 In the "Upload Docker credentials into the file share" step,
@@ -219,6 +241,32 @@ since it expects the credentials to be in `config.json`.
 To make this work, you must edit `.docker/config.json`
 and remove the "credsStore" entry from the JSON there.
 (Make sure that what you leave is still valid JSON!)
+
+### Docker and WSL (Windows Subsystem for Linux)
+
+In principle, container.py should work on WSL
+(a.k.a. "Bash on Ubuntu on Windows")
+but in practice there are some difficulties:
+
+1.  The Docker daemon does not work with WSL,
+    but the client does.
+    So you can install Docker for Windows
+    as if you were not using WSL,
+    and then install just the client binary for WSL.
+    (The Windows binary is not compatible with WSL.)
+
+1.  As of this writing,
+    the best way to obtain the Docker client alone
+    is to [download a binary release](https://github.com/moby/moby/releases)
+    and put it somewhere on your PATH.
+    For example, to get version v17.05.0-ce,
+    do the following:
+
+    ```
+    wget https://get.docker.com/builds/Linux/x86_64/docker-17.05.0-ce.tgz
+    tar -xzvf docker-17.05.0-ce.tgz
+    cp docker/docker $LOCATION_ON_PATH
+    ```
 
 ### Cleaning up
 
