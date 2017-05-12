@@ -181,6 +181,7 @@ class ContainerHelper(object):
             ))
             sys.exit(1)
         content = json.loads(response.text)
+        print('Deployment request successful.')
         if 'deployments' in content:
             print('Deployments: ', content['deployments'])
         else:
