@@ -2,14 +2,10 @@ from .helpers.resource_helper import ResourceHelper
 from .helpers.container_helper import ContainerHelper
 
 
-DEFAULT_DOCKER_IMAGE = 'mesosphere/simple-docker'
-
-
 class ContainerDeployer(object):
-    def __init__(self, client_data,
+    def __init__(self, client_data, docker_image,
                  default_name='containersample',
                  location='South Central US',
-                 docker_image=DEFAULT_DOCKER_IMAGE,
                  resource_group=None):
         self.default_name = default_name
         self.docker_image = docker_image

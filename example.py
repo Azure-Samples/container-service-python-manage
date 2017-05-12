@@ -51,7 +51,7 @@ def main():
             credentials,
             os.environ['AZURE_SUBSCRIPTION_ID'],
         ),
-        docker_image=args.image,
+        args.image,
     )
     deployer.deploy()
     print(requests.get('http://{}'.format(deployer.public_ip())).text)
