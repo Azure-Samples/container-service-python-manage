@@ -5,8 +5,8 @@ import sys
 import traceback
 
 from .container_deployer import ContainerDeployer
-from .helpers.storage_helper import StorageHelper
-from .helpers.registry_helper import ContainerRegistryHelper
+from .helpers.advanced.storage_helper import StorageHelper
+from .helpers.advanced.registry_helper import ContainerRegistryHelper
 
 
 class ACRContainerDeployer(ContainerDeployer):
