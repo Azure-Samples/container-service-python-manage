@@ -1,6 +1,9 @@
-azure==2.0.0rc6
 azure-storage==0.33.0
-docker==2.2.1
+azure-mgmt-compute~=1.0.0rc1
+azure-mgmt-containerregistry~=0.2.0
+azure-mgmt-resource~=1.0.0rc1
+azure-mgmt-storage~=1.0.0rc1
 haikunator==2.1.0
-msrestazure==0.4.7
+msrestazure>=0.4.7
 requests==2.13.0
+sshtunnel==0.1.2
