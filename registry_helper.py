@@ -1,12 +1,10 @@
-import json
 import os
 import subprocess
 import tarfile
 import tempfile
 from collections import namedtuple
 from contextlib import contextmanager
-
-import docker
+from distutils.spawn import find_executable
 
 from azure.mgmt.containerregistry import (
     ContainerRegistryManagementClient,
@@ -111,21 +109,19 @@ class ContainerRegistryHelper(object):
             '-p', self.credentials.password,
             self.registry.login_server,
         ])
-        yield docker.APIClient()
+        yield
         print('Logging out of Docker registry.')
-        subprocess.check_call(['docker', 'logout', self.registry.login_server])
+        subprocess.check_call(['docker', 'logout',
+                               self.registry.login_server])
 
-    def _push_to_registry(self, docker_client, image_name, image_name_in_repo):
+    def _push_to_registry(self, image_name, image_name_in_repo):
         print('Pushing image {}...'.format(image_name))
         repository_tag = self.get_docker_repo_tag(image_name_in_repo)
-        docker_client.tag(
-            image_name,
-            repository=repository_tag,
-        )
-        for stream_line in docker_client.push(repository=repository_tag,
-                                              stream=True):
-            for line in stream_line.decode('utf-8').strip().split('\n'):
-                print(json.dumps(json.loads(line)))
+        subprocess.check_call(['docker', 'tag', image_name, repository_tag])
+        push_proc = subprocess.Popen(['docker', 'push', repository_tag],
+                                     stdout=subprocess.PIPE)
+        for line in iter(push_proc.stdout.readline, b''):
+            print(line.decode('utf-8'), end='')
         print('Push finished.')
 
     def _upload_docker_creds(self):
@@ -149,7 +145,7 @@ class ContainerRegistryHelper(object):
 
     def setup_image(self, image_name, image_name_in_repo):
         """Push an image to a registry and put the registry credentials on a share."""
-        with self.docker_session() as docker_client:
-            self._push_to_registry(docker_client, image_name, image_name_in_repo)
+        with self.docker_session():
+            self._push_to_registry(image_name, image_name_in_repo)
             self._upload_docker_creds()
 
