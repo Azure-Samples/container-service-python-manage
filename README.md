@@ -302,7 +302,7 @@ In principle, container.py should work on WSL
 but in practice there are some difficulties.
 
 The following are some issues you might run into,
-with less-than-thoroughly detailed possible solutions.
+with less-than-thoroughly-detailed possible solutions.
 If you're not comfortable implementing those solutions
 based on the descriptions given,
 using WSL might not be the right route for you.
