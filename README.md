@@ -222,7 +222,8 @@ and the top-level helper classes in the `deployers.helpers` package.
 The advanced example using `--use-acr`,
 which adds Azure Container Registry support,
 uses the `deployers.acr_container_deployer.ACRContainerDeployer` class
-and the helpers in `deployers.helpers.advanced` as well as those from one level up.
+and the helpers in `deployers.helpers.advanced`
+as well as those from `deployers.helpers`.
 
 Additionally, there are some helper scripts
 in the `deployers/scripts` subdirectory.
