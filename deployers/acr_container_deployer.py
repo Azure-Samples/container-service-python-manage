@@ -60,8 +60,8 @@ class ACRContainerDeployer(ContainerDeployer):
         print('Mounting file share on all machines in cluster...')
         key_file = os.path.basename(self.container_service.get_key_path())
         # https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-fileshare
-        with io.open('cifsMountTemplate.sh') as cifsMount_template, \
-             io.open('cifsMount.sh', 'w', newline='\n') as cifsMount:
+        with io.open(os.path.join('scripts', 'cifsMountTemplate.sh')) as cifsMount_template, \
+             io.open(os.path.join('scripts', 'cifsMount.sh'), 'w', newline='\n') as cifsMount:
             cifsMount.write(
                 cifsMount_template.read().format(
                     storageacct=self.storage.account.name,
@@ -70,8 +70,8 @@ class ACRContainerDeployer(ContainerDeployer):
                     password=self.storage.key,
                 )
             )
-        self.scp_to_container_master('cifsMount.sh', '')
-        self.scp_to_container_master('mountShares.sh', '')
+        self.scp_to_container_master(os.path.join('scripts', 'cifsMount.sh'), '')
+        self.scp_to_container_master(os.path.join('scripts', 'mountShares.sh'), '')
         self.scp_to_container_master(self.container_service.get_key_path(), key_file)
         with self.container_service.cluster_ssh() as proc:
             proc.stdin.write('chmod 600 {}\n'.format(key_file).encode('ascii'))
