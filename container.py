@@ -112,7 +112,7 @@ class Deployer(object):
         self._format_proc_output('Stdout:', out)
         self._format_proc_output('Stderr:', err)
 
-    def deploy(self):
+    def deploy_from_acr(self):
         registry_image_name = self.docker_image.split('/')[-1]
         self.container_registry.setup_image(self.docker_image, registry_image_name)
         self.mount_shares()
@@ -120,6 +120,10 @@ class Deployer(object):
             self.container_registry.get_docker_repo_tag(registry_image_name),
             self.container_registry
         )
+
+    def deploy_from_dockerhub(self):
+        self.container_service.deploy_container_from_registry(self.docker_image)
+        pass
 
     def public_ip(self):
         for item in self.resources.list_resources():
@@ -144,7 +148,7 @@ def main():
         ),
         docker_image=args.image,
     )
-    deployer.deploy()
+    deployer.deploy_from_dockerhub()
     print(requests.get('http://{}'.format(deployer.public_ip())).text)
 
 if __name__ == '__main__':
