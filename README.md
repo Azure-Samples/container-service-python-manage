@@ -219,7 +219,8 @@ Most of the logic is in two deployers and several helpers.
 The simple example uses the `deployers.container_deployer.ContainerDeployer` class
 and the top-level helper classes in the `deployers.helpers` package.
 
-The advanced example, which adds Azure Container Registry support,
+The advanced example using `--use-acr`,
+which adds Azure Container Registry support,
 uses the `deployers.acr_container_deployer.ACRContainerDeployer` class
 and the helpers in `deployers.helpers.advanced` as well as those from one level up.
 
