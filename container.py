@@ -6,6 +6,7 @@ import io
 import os
 import subprocess
 import sys
+import traceback
 from collections import namedtuple
 
 import requests
@@ -76,11 +77,12 @@ class Deployer(object):
                 '{}:./{}'.format(address, remote_path)
             ])
         except subprocess.CalledProcessError:
+            traceback.print_exc()
             print('It looks like an scp command failed.')
-            print('You might need to verify the host key manually.')
-            print('Please run the following command to do so:')
+            print('Make sure you can ssh into the server without prompts.')
+            print('Please run the following command to try it:')
             print('ssh {}'.format(address))
-            raise
+            sys.exit(1)
 
     def mount_shares(self):
         print('Mounting file share on all machines in cluster...')
