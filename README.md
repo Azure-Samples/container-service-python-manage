@@ -18,6 +18,7 @@ using the [Azure SDK for Python](http://azure-sdk-for-python.readthedocs.io/en/l
 - [Notes and troubleshooting](#troubleshooting)
 
 <a id="run"></a>
+
 ## Run this sample
 
 1.  If you don't already have them, install the following:
@@ -30,7 +31,9 @@ using the [Azure SDK for Python](http://azure-sdk-for-python.readthedocs.io/en/l
     but may need to be installed specially on Windows.
     (For this purpose, you might want to use the bash emulation included in
     [git-for-windows](https://git-for-windows.github.io),
-    with [cmder](http://cmder.net) if you want a more featureful console as well.)
+    with [cmder](http://cmder.net) if you want a more featureful console as well.
+    Using the [Windows Subsystem for Linux](https://msdn.microsoft.com/en-us/commandline/wsl/about) is an option too,
+    but [there are some potential difficulties](#wsl) you should be aware of.)
 
     - Standard POSIX tools, specifically `chmod`
     - The [OpenSSH](http://www.openssh.com) suite of tools, specifically `ssh`,
@@ -242,11 +245,19 @@ To make this work, you must edit `.docker/config.json`
 and remove the "credsStore" entry from the JSON there.
 (Make sure that what you leave is still valid JSON!)
 
+<a id="wsl"></a>
+
 ### Docker and WSL (Windows Subsystem for Linux)
 
 In principle, container.py should work on WSL
 (a.k.a. "Bash on Ubuntu on Windows")
-but in practice there are some difficulties:
+but in practice there are some difficulties.
+
+The following are some issues you might run into,
+with less-than-thoroughly detailed possible solutions.
+If you're not comfortable implementing those solutions
+based on the descriptions given,
+using WSL might not be the right route for you.
 
 1.  The Docker daemon does not work with WSL,
     but the client does.
@@ -258,7 +269,7 @@ but in practice there are some difficulties:
 1.  As of this writing,
     the best way to obtain the Docker client alone
     is to [download a binary release](https://github.com/moby/moby/releases)
-    and put it somewhere on your PATH.
+    and put it somewhere on your `PATH`.
     For example, to get version v17.05.0-ce,
     do the following:
 
@@ -267,6 +278,14 @@ but in practice there are some difficulties:
     tar -xzvf docker-17.05.0-ce.tgz
     cp docker/docker $LOCATION_ON_PATH
     ```
+
+1.  Builds of WSL prior to 14936 have
+    [an issue](https://github.com/Microsoft/BashOnWindows/issues/157)
+    preventing SSH tunnelling into the cluster's master node from working.
+    As a workaround,
+    you can add an entry for the master node
+    in `~/.ssh/config`
+    with the parameter `AddressFamily inet`.
 
 ### Cleaning up
 
