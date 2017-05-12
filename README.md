@@ -230,6 +230,24 @@ These are used only by the advanced example.
 
 ## Notes and troubleshooting
 
+### Running a container from ACR locally
+
+If you have an image in an Azure Container Registry
+and want to run it on your local machine,
+you can do so using the Docker command line interface:
+
+```
+docker login -u <acr_username> -p <acr_password> <acr_server>
+docker run -it <acr_server>/<container>:<tag>
+```
+
+To find the information you need to fill in,
+refer to [this documentation](https://docs.microsoft.com/en-us/azure/container-registry/container-registry-get-started-portal#manage-registry-settings).
+
+You can find more information about interacting with an ACR
+through the command line
+[here](https://docs.microsoft.com/en-us/azure/container-registry/container-registry-get-started-docker-cli).
+
 ### SSH configuration
 
 Your first attempt to non-interactively connect to your Azure cluster
