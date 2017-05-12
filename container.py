@@ -31,10 +31,37 @@ def set_up_parser():
         '--image', default=DEFAULT_DOCKER_IMAGE,
         help='Docker image to deploy.'
     )
+    parser.add_argument(
+        '--use-acr', action='store_const', dest='deployer',
+        default=ContainerDeployer, const=ACRContainerDeployer,
+        help='Add the image to an Azure Container Registry and deploy from there.'
+    )
     return parser
 
 
-class Deployer(object):
+class ContainerDeployer(object):
+    def __init__(self, client_data,
+                 default_name='containersample',
+                 location='South Central US',
+                 docker_image=DEFAULT_DOCKER_IMAGE,
+                 resource_group=None):
+        self.default_name = default_name
+        self.docker_image = docker_image
+        self.resources = ResourceHelper(client_data, location, resource_group=resource_group)
+        self.resources.resource_client.providers.register('Microsoft.ContainerRegistry')
+        self.resources.resource_client.providers.register('Microsoft.ContainerService')
+        self.container_service = ContainerHelper(client_data, self.resources)
+
+    def deploy(self):
+        self.container_service.deploy_container_from_registry(self.docker_image)
+
+    def public_ip(self):
+        for item in self.resources.list_resources():
+            if 'agent-ip' in item.name.lower():
+                return self.resources.get_by_id(item.id).properties['ipAddress']
+
+
+class ACRContainerDeployer(ContainerDeployer):
     def __init__(self, client_data,
                  default_name='containersample',
                  location='South Central US',
@@ -42,11 +69,11 @@ class Deployer(object):
                  resource_group=None,
                  storage_account=None,
                  container_registry=None):
-        self.default_name = default_name
-        self.docker_image = docker_image
-        self.resources = ResourceHelper(client_data, location, resource_group=resource_group)
-        self.resources.resource_client.providers.register('Microsoft.ContainerRegistry')
-        self.resources.resource_client.providers.register('Microsoft.ContainerService')
+        super().__init__(client_data,
+                         default_name=default_name,
+                         location=location,
+                         docker_image=docker_image,
+                         resource_group=resource_group)
         self.storage = StorageHelper(client_data, self.resources, account=storage_account)
         self.container_registry = ContainerRegistryHelper(
             client_data,
@@ -54,7 +81,6 @@ class Deployer(object):
             self.storage,
             container_registry
         )
-        self.container_service = ContainerHelper(client_data, self.resources)
 
     def _format_proc_output(self, header, output):
         if output:
@@ -112,7 +138,7 @@ class Deployer(object):
         self._format_proc_output('Stdout:', out)
         self._format_proc_output('Stderr:', err)
 
-    def deploy_from_acr(self):
+    def deploy(self):
         registry_image_name = self.docker_image.split('/')[-1]
         self.container_registry.setup_image(self.docker_image, registry_image_name)
         self.mount_shares()
@@ -120,15 +146,6 @@ class Deployer(object):
             self.container_registry.get_docker_repo_tag(registry_image_name),
             self.container_registry
         )
-
-    def deploy_from_dockerhub(self):
-        self.container_service.deploy_container_from_registry(self.docker_image)
-        pass
-
-    def public_ip(self):
-        for item in self.resources.list_resources():
-            if 'agent-ip' in item.name.lower():
-                return self.resources.get_by_id(item.id).properties['ipAddress']
 
 
 def main():
@@ -141,14 +158,14 @@ def main():
         tenant=os.environ['AZURE_TENANT_ID'],
     )
 
-    deployer = Deployer(
+    deployer = args.deployer(
         ClientArgs(
             credentials,
             os.environ['AZURE_SUBSCRIPTION_ID'],
         ),
         docker_image=args.image,
     )
-    deployer.deploy_from_dockerhub()
+    deployer.deploy()
     print(requests.get('http://{}'.format(deployer.public_ip())).text)
 
 if __name__ == '__main__':
