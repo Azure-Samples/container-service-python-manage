@@ -7,14 +7,15 @@ author: v-iam
 # Deploy and connect to a Docker container in an Azure cluster
 
 This sample is an end-to-end scenario for getting started
-with Azure Container Registry (ACR)
-and Azure Container Service (ACS)
+with Azure Container Service (ACS)
+and, optionally, Azure Container Registry (ACR)
 using the [Azure SDK for Python](http://azure-sdk-for-python.readthedocs.io/en/latest/).
 
 **On this page**
 
 - [Run this sample](#run)
 - [What does container.py do?](#example)
+- [How is the code laid out?](#code)
 - [Notes and troubleshooting](#troubleshooting)
 
 <a id="run"></a>
@@ -93,19 +94,30 @@ or [the portal](https://azure.microsoft.com/documentation/articles/resource-grou
     ```
 
 1.  Run the sample.
+    The basic version just deploys the local image to ACS:
 
     ```
-    python container.py
+    python example.py
+    ```
+
+    The advanced version will push the image to ACR before deploying it:
+
+    ```
+    python example.py --use-acr
     ```
 
 <a id="example"></a>
-## What does container.py do?
 
-`container.py` goes through all the necessary steps to take a local Docker container,
-add it to a private registry using Azure Container Registry,
+## What does example.py do?
+
+`example.py` goes through all the necessary steps to take a Docker container,
+optionally add it to a private registry using Azure Container Registry,
 and then deploy it to a cluster in the cloud using Azure Container Services.
 
-At a high level, those steps are as follows:
+At a high level, those steps are as follows.
+The ones marked with [ACR] are optional
+and happen only if you use an Azure Container Registry
+by specifying the `--use-acr` option.
 
 1.  Create a resource group.
 
@@ -115,7 +127,7 @@ At a high level, those steps are as follows:
     to keep them organized and separate from other resources you may have,
     as well as allowing you to clean up after it easily by deleting the resource group.
 
-1.  Create a storage account.
+1.  [ACR] Create a storage account.
 
     Several steps of this process require an Azure storage account,
     one of the resources mentioned in the previous step,
@@ -123,13 +135,13 @@ At a high level, those steps are as follows:
     The [`StorageHelper`](storage_helper.py) class can be used to manage a
     storage account with a specific name (and create one if it doesn't exist already).
 
-1.  Create an Azure Container Registry.
+1.  [ACR] Create an Azure Container Registry.
 
     An Azure Container Registry is private storage
     for you or your organization's Docker containers.
     The [`ContainerHelper`](container_helper.py) class creates one for you.
 
-1.  Create a file share and upload ACR credentials into it.
+1.  [ACR] Create a file share and upload ACR credentials into it.
 
     To allow all the VMs in your cluster to access your Docker login credentials,
     you can put them in a file share in an Azure storage account.
@@ -138,7 +150,7 @@ At a high level, those steps are as follows:
     See [this documentation]( https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-fileshare#create-a-file-share-on-microsoft-azure)
     for information on other ways of doing this.
 
-1.  Upload ACR credentials into the file share.
+1.  [ACR] Upload ACR credentials into the file share.
 
     After the file share is created,
     [`ContainerHelper`](container_helper.py) uploads the credentials into it.
@@ -147,7 +159,7 @@ At a high level, those steps are as follows:
 
     Please also see [this note](#docker-creds) to make sure this step does the right thing!
 
-1.  Push your Docker image to the container registry.
+1.  [ACR] Push your Docker image to the container registry.
 
     By default, `container.py` attempts to push the local image `mesosphere/simple-docker`
     that you pulled in [Run this sample](#run) above. If you'd rather use a different
@@ -160,7 +172,7 @@ At a high level, those steps are as follows:
     with [DC/OS](https://dcos.io) as the orchestrator,
     to manage deployment of containers to a cluster of virtual machines.
 
-1.  Mount the file share with the Docker credentials in the cluster.
+1.  [ACR] Mount the file share with the Docker credentials in the cluster.
 
     To make sure every machine in the cluster can access the Docker credentials,
     they must have access to the file share they were uploaded to.
@@ -169,7 +181,7 @@ At a high level, those steps are as follows:
     and runs a script from each to mount the share.
     See [this documentation](https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-fileshare#mount-the-share-in-your-cluster) for details on this process.
 
-1.  Deploy the image from ACR into the cluster.
+1.  Deploy the image into the cluster.
 
     The final step in the process is the actual deployment of the image.
     This requires a SSH tunnel, as described in
@@ -196,6 +208,23 @@ At a high level, those steps are as follows:
 
     If you see this, it means the tutorial ran successfully. You just connected to a
     Docker container running a Web server on a cluster in the Azure cloud!
+
+<a id="code"></a>
+
+## How is the code laid out?
+
+The top-level script `example.py` is just the entry point for this example.
+Most of the logic is in two deployers and several helpers.
+The simple example uses the `deployers.container_deployer.ContainerDeployer` class
+and the top-level helper classes in the `deployers.helpers` package.
+
+The advanced example, which adds Azure Container Registry support,
+uses the `deployers.acr_container_deployer.ACRContainerDeployer` class
+and the helpers in `deployers.helpers.advanced` as well as those from one level up.
+
+Additionally, there are some helper scripts
+in the `deployers/scripts` subdirectory.
+These are used only by the advanced example.
 
 <a id="troubleshooting"></a>
 
