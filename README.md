@@ -123,7 +123,7 @@ by specifying the `--use-acr` option.
 
     The process that `container.py` implements
     requires creating several different resources in Azure.
-    The [`ResourceHelper`](resource_helper.py) class creates a resource group
+    The [`ResourceHelper`](deployers/helpers/resource_helper.py) class creates a resource group
     to keep them organized and separate from other resources you may have,
     as well as allowing you to clean up after it easily by deleting the resource group.
 
@@ -132,20 +132,20 @@ by specifying the `--use-acr` option.
     Several steps of this process require an Azure storage account,
     one of the resources mentioned in the previous step,
     to hold persistent data.
-    The [`StorageHelper`](storage_helper.py) class can be used to manage a
+    The [`StorageHelper`](deployers/helpers/advanced/storage_helper.py) class can be used to manage a
     storage account with a specific name (and create one if it doesn't exist already).
 
 1.  [ACR] Create an Azure Container Registry.
 
     An Azure Container Registry is private storage
     for you or your organization's Docker containers.
-    The [`ContainerHelper`](container_helper.py) class creates one for you.
+    The [`ContainerHelper`](deployers/helpers/container_helper.py) class creates one for you.
 
 1.  [ACR] Create a file share and upload ACR credentials into it.
 
     To allow all the VMs in your cluster to access your Docker login credentials,
     you can put them in a file share in an Azure storage account.
-    [`StorageHelper`](storage_helper.py) creates a share
+    [`StorageHelper`](deployers/helpers/advanced/storage_helper.py) creates a share
     in the resource group from the first step.
     See [this documentation]( https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-fileshare#create-a-file-share-on-microsoft-azure)
     for information on other ways of doing this.
@@ -153,7 +153,8 @@ by specifying the `--use-acr` option.
 1.  [ACR] Upload ACR credentials into the file share.
 
     After the file share is created,
-    [`ContainerHelper`](container_helper.py) uploads the credentials into it.
+    [`RegistryHelper`](deployers/helpers/advanced/registry_helper.py)
+    uploads the credentials into it.
     See [this documentation](https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-acr)
     for details on this process.
 
@@ -168,7 +169,7 @@ by specifying the `--use-acr` option.
 1.  Create a container service.
 
     To go along with the registry mentioned in the previous step,
-    [`ContainerHelper`] also creates a container service,
+    [`ContainerHelper`](deployers/helpers/container_helper.py) also creates a container service,
     with [DC/OS](https://dcos.io) as the orchestrator,
     to manage deployment of containers to a cluster of virtual machines.
 
