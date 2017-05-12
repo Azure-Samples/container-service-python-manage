@@ -1,17 +1,15 @@
+from contextlib import contextmanager
 import io
 import json
 import os
-import tarfile
-import tempfile
-from collections import namedtuple
-from contextlib import contextmanager
-
 import subprocess
 from subprocess import PIPE
+import sys
+import traceback
 
 import requests
 from haikunator import Haikunator
-from sshtunnel import SSHTunnelForwarder
+from sshtunnel import SSHTunnelForwarder, HandlerSSHTunnelForwarderError
 
 from azure.mgmt.compute.containerservice import ContainerServiceClient
 from azure.mgmt.compute.containerservice.models import (
@@ -99,12 +97,13 @@ class ContainerHelper(object):
             self.master_ssh_address()
         )
 
-    def ssh_tunnel_args(self, host='localhost', port=80):
+    def ssh_tunnel_args(self, remote_host='127.0.0.1', local_host='127.0.0.1',
+                        remote_port=80, local_port=8001):
         return dict(
             ssh_address_or_host=(self.master_ssh_address(), 2200),
             ssh_username=self.default_name,
-            remote_bind_address=(host, port),
-            local_bind_address=(host, port),
+            remote_bind_address=(remote_host, remote_port),
+            local_bind_address=(local_host, local_port),
             ssh_pkey=self.get_key_path(),
         )
 
@@ -123,38 +122,59 @@ class ContainerHelper(object):
         proc.terminate()
 
     def deploy_container_from_registry(self, docker_tag, registry_helper):
-        with SSHTunnelForwarder(**self.ssh_tunnel_args()) as tunnel:
-            print('Attempting to deploy Docker image {}'.format(docker_tag))
-            response = requests.post(
-                'http://{}:{}/marathon/v2/apps'.format(*tunnel.local_bind_address),
-                json={
-                    "id": docker_tag.split('/')[-1],
-                    "container": {
-                        "type": "DOCKER",
-                        "docker": {
-                            "image": docker_tag,
-                            "network": "BRIDGE",
-                            "portMappings": [
-                                {
-                                    "hostPort": 80,
-                                    "containerPort": 80,
-                                    "protocol": "tcp"
-                                }
-                            ]
-                        }
-                    },
-                    "acceptedResourceRoles": ["slave_public"],
-                    "instances": 1,
-                    "cpus": 0.1,
-                    "mem": 64,
-                    "uris":  [
-                        "file:///mnt/{}/{}".format(
-                            registry_helper.storage.default_share,
-                            registry_helper.credentials_file_name
-                        )
-                    ]
-                }
-            )
+        tunnel_remote_port = 80
+        tunnel_local_port = 8001
+        tunnel_host = '127.0.0.1'
+        try:
+            with SSHTunnelForwarder(**self.ssh_tunnel_args(
+                remote_host=tunnel_host,
+                local_host=tunnel_host,
+                remote_port=tunnel_remote_port,
+                local_port=tunnel_local_port,
+            )) as tunnel:
+                print('Attempting to deploy Docker image {}'.format(docker_tag))
+                response = requests.post(
+                    'http://{}:{}/marathon/v2/apps'.format(*tunnel.local_bind_address),
+                    json={
+                        "id": docker_tag.split('/')[-1],
+                        "container": {
+                            "type": "DOCKER",
+                            "docker": {
+                                "image": docker_tag,
+                                "network": "BRIDGE",
+                                "portMappings": [
+                                    {
+                                        "hostPort": 80,
+                                        "containerPort": 80,
+                                        "protocol": "tcp"
+                                    }
+                                ]
+                            }
+                        },
+                        "acceptedResourceRoles": ["slave_public"],
+                        "instances": 1,
+                        "cpus": 0.1,
+                        "mem": 64,
+                        "uris":  [
+                            "file:///mnt/{}/{}".format(
+                                registry_helper.storage.default_share,
+                                registry_helper.credentials_file_name
+                            )
+                        ]
+                    }
+                )
+        except HandlerSSHTunnelForwarderError:
+            traceback.print_exc()
+            print('Opening SSH tunnel failed.')
+            print('Please try the following command in a terminal:')
+            print('ssh -N -L {local_host}:{local_port}:{remote_host}:{remote_port} {addr}'.format(
+                remote_host=tunnel_host,
+                remote_port=tunnel_remote_port,
+                local_host=tunnel_host,
+                local_port=tunnel_local_port,
+                addr=self.master_ssh_address(),
+            ))
+            sys.exit(1)
         content = json.loads(response.text)
         if 'deployments' in content:
             print('Deployments: ', content['deployments'])
