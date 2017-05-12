@@ -121,7 +121,38 @@ class ContainerHelper(object):
         yield proc
         proc.terminate()
 
-    def deploy_container_from_registry(self, docker_tag, registry_helper):
+    def marathon_deploy_params(self, docker_tag, private_registry_helper=None):
+        params = {
+            "id": docker_tag.split('/')[-1],
+            "container": {
+                "type": "DOCKER",
+                "docker": {
+                    "image": docker_tag,
+                    "network": "BRIDGE",
+                    "portMappings": [
+                        {
+                            "hostPort": 80,
+                            "containerPort": 80,
+                            "protocol": "tcp"
+                        }
+                    ]
+                }
+            },
+            "acceptedResourceRoles": ["slave_public"],
+            "instances": 1,
+            "cpus": 0.1,
+            "mem": 64,
+        }
+        if private_registry_helper:
+            params["uris"] = [
+                "file:///mnt/{}/{}".format(
+                    private_registry_helper.storage.default_share,
+                    private_registry_helper.credentials_file_name
+                )
+            ]
+        return params
+
+    def deploy_container_from_registry(self, docker_tag, private_registry_helper=None):
         tunnel_remote_port = 80
         tunnel_local_port = 8001
         tunnel_host = '127.0.0.1'
@@ -135,33 +166,7 @@ class ContainerHelper(object):
                 print('Attempting to deploy Docker image {}'.format(docker_tag))
                 response = requests.post(
                     'http://{}:{}/marathon/v2/apps'.format(*tunnel.local_bind_address),
-                    json={
-                        "id": docker_tag.split('/')[-1],
-                        "container": {
-                            "type": "DOCKER",
-                            "docker": {
-                                "image": docker_tag,
-                                "network": "BRIDGE",
-                                "portMappings": [
-                                    {
-                                        "hostPort": 80,
-                                        "containerPort": 80,
-                                        "protocol": "tcp"
-                                    }
-                                ]
-                            }
-                        },
-                        "acceptedResourceRoles": ["slave_public"],
-                        "instances": 1,
-                        "cpus": 0.1,
-                        "mem": 64,
-                        "uris":  [
-                            "file:///mnt/{}/{}".format(
-                                registry_helper.storage.default_share,
-                                registry_helper.credentials_file_name
-                            )
-                        ]
-                    }
+                    json=self.marathon_deploy_params(docker_tag, private_registry_helper)
                 )
         except HandlerSSHTunnelForwarderError:
             traceback.print_exc()
