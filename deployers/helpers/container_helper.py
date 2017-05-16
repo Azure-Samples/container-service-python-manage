@@ -183,9 +183,11 @@ class ContainerServiceHelper(object):
                 else:
                     print(content)
                 while True:
+                    print('Making sure deployment finishes.')
+                    print('Initial simple-docker deploy should take about 30 seconds.')
                     if requests.get(base_url + 'deployments').json():
                         print('Waiting for deployment to finish...')
-                        time.sleep(1)
+                        time.sleep(5)
                     else:
                         break
         except HandlerSSHTunnelForwarderError:
