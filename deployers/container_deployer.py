@@ -1,5 +1,5 @@
 from .helpers.resource_helper import ResourceHelper
-from .helpers.container_helper import ContainerHelper
+from .helpers.container_helper import ContainerServiceHelper
 
 
 class ContainerDeployer(object):
@@ -18,10 +18,11 @@ class ContainerDeployer(object):
                                                         self.docker_image)
 
     def deploy(self):
-        self.container_service.deploy_container_from_registry(self.docker_image)
+        self.container_service.deploy_container_from_registry()
 
     def public_ip(self):
         for item in self.resources.list_resources():
-            if 'agent-ip' in item.name.lower():
+            name = item.name.lower()
+            if 'agent-ip' in name and self.container_service.dns_prefix in name:
                 return self.resources.get_by_id(item.id).properties['ipAddress']
 
