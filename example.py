@@ -31,6 +31,15 @@ def set_up_parser():
         default=ContainerDeployer, const=ACRContainerDeployer,
         help='Add the image to an Azure Container Registry and deploy from there.'
     )
+    parser.add_argument(
+        '-n', '--name', default='containersample',
+        help='String to use in resource name templates (--resource-group, etc.)'
+    )
+    parser.add_argument(
+        '-g', '--resource-group',
+        default='{name}-group',
+        help='Name of resource group to use. (If nonexistent it will be created.)'
+    )
     return parser
 
 
@@ -50,6 +59,10 @@ def main():
             os.environ['AZURE_SUBSCRIPTION_ID'],
         ),
         args.image,
+        resource_group=args.resource_group.format(name=args.name),
+        container_service=args.name + 'service',
+        storage_account=args.name + 'storage',
+        container_registry=args.name + 'registry',
     )
     deployer.deploy()
     print('\nContacting ACS cluster at http://{}'.format(deployer.public_ip()))

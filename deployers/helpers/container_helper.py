@@ -25,14 +25,12 @@ from azure.mgmt.compute.containerservice.models import (
 from msrestazure.azure_exceptions import CloudError
 
 
-class ContainerHelper(object):
-    def __init__(self, client_data, resource_helper,
-                 container_service=None,
-                 default_name='containersample'):
+class ContainerServiceHelper(object):
+    def __init__(self, client_data, resource_helper, name, docker_tag):
         self.resources = resource_helper
-        self.default_name = default_name
-        self.dns_prefix = Haikunator().haikunate()
-        self._container_service = container_service
+        self.name = name
+        self.docker_tag = docker_tag
+        self._container_service = None
         self.container_client = ContainerServiceClient(*client_data)
 
     @property
@@ -43,7 +41,7 @@ class ContainerHelper(object):
             try:
                 self._container_service = container_ops.get(
                     self.resources.group.name,
-                    self.default_name,
+                    self.name,
                 )
             except CloudError:
                 container_service = ContainerService(
@@ -54,13 +52,13 @@ class ContainerHelper(object):
                     ),
                     agent_pool_profiles=[
                         ContainerServiceAgentPoolProfile(
-                            name=self.default_name,
+                            name=self.name,
                             vm_size='Standard_D1_v2',
                             dns_prefix='agent' + self.dns_prefix,
                         )
                     ],
                     linux_profile=ContainerServiceLinuxProfile(
-                        self.default_name,
+                        self.name,
                         self._get_ssh_config(),
                     ),
                     orchestrator_profile=ContainerServiceOrchestratorProfile(
@@ -70,7 +68,7 @@ class ContainerHelper(object):
 
                 container_service_creation = container_ops.create_or_update(
                     resource_group_name=self.resources.group.name,
-                    container_service_name=self.default_name,
+                    container_service_name=self.name,
                     parameters=container_service,
                 )
                 self._container_service = container_service_creation.result()
@@ -93,7 +91,7 @@ class ContainerHelper(object):
 
     def master_ssh_login(self):
         return '{}@{}'.format(
-            self.default_name,
+            self.name,
             self.master_ssh_address()
         )
 
@@ -101,7 +99,7 @@ class ContainerHelper(object):
                         remote_port=80, local_port=8001):
         return dict(
             ssh_address_or_host=(self.master_ssh_address(), 2200),
-            ssh_username=self.default_name,
+            ssh_username=self.name,
             remote_bind_address=(remote_host, remote_port),
             local_bind_address=(local_host, local_port),
             ssh_pkey=self.get_key_path(),
@@ -121,13 +119,16 @@ class ContainerHelper(object):
         yield proc
         proc.terminate()
 
-    def marathon_deploy_params(self, docker_tag, private_registry_helper=None):
+    def deployment_id(self):
+        return self.docker_tag.split('/')[-1]
+
+    def marathon_deploy_params(self, private_registry_helper=None):
         params = {
-            "id": docker_tag.split('/')[-1],
+            "id": self.deployment_id(),
             "container": {
                 "type": "DOCKER",
                 "docker": {
-                    "image": docker_tag,
+                    "image": self.docker_tag,
                     "network": "BRIDGE",
                     "portMappings": [
                         {
@@ -163,7 +164,7 @@ class ContainerHelper(object):
                 remote_port=tunnel_remote_port,
                 local_port=tunnel_local_port,
             )) as tunnel:
-                print('Attempting to deploy Docker image {}'.format(docker_tag))
+                print('Attempting to deploy Docker image {}'.format(self.docker_tag))
                 response = requests.post(
                     'http://{}:{}/marathon/v2/apps'.format(*tunnel.local_bind_address),
                     json=self.marathon_deploy_params(docker_tag, private_registry_helper)

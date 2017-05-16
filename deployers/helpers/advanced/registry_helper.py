@@ -33,12 +33,11 @@ def working_dir(path):
 
 class ContainerRegistryHelper(object):
     def __init__(self, client_data, resource_helper, storage,
-                 registry=None,
-                 default_name='containersample'):
+                 name='containersample'):
         self.resources = resource_helper
         self.storage = storage
-        self.default_name = default_name
-        self._registry = registry
+        self.name = name
+        self._registry = None
         self._credentials = None
         self.credentials_file_name = 'docker.tar.gz'
         self.registry_client = ContainerRegistryManagementClient(*client_data)
@@ -51,13 +50,13 @@ class ContainerRegistryHelper(object):
             try:
                 registry = registry_ops.get(
                     self.resources.group.name,
-                    self.default_name,
+                    self.name,
                 )
             except CloudError:
                 # try to create registry
                 registry_creation = registry_ops.create(
                     self.resources.group.name,
-                    self.default_name,
+                    self.name,
                     RegistryCreateParameters(
                         location=self.storage.account.location,
                         sku=ContainerRegistrySku(ContainerRegistrySkuName.basic),

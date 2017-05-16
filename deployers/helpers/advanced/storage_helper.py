@@ -26,11 +26,10 @@ class StorageHelper(object):
     For both those properties, if the value mentioned doesn't exist,
     it will be created upon first property access.
     """
-    def __init__(self, client_data, resource_helper,
+    def __init__(self, client_data, resource_helper, name,
                  account=None,
-                 default_name='containersample',
                  default_share='share'):
-        self.default_name = default_name
+        self.name = name
         self.default_share = default_share
         self._account = account
         self._key = os.environ.get('AZURE_STORAGE_KEY')
@@ -48,7 +47,7 @@ class StorageHelper(object):
             # OK to create storage account even if it already exists
             storage_creation = self.client.storage_accounts.create(
                 self.resource_helper.group.name,
-                self.default_name,
+                    self.name,
                 StorageAccountCreateParameters(
                     sku=StorageAccountSku(StorageSkuName.standard_lrs),
                     kind=StorageKind.storage,

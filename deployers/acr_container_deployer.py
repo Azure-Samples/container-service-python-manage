@@ -13,16 +13,16 @@ SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), 'scripts')
 
 class ACRContainerDeployer(ContainerDeployer):
     def __init__(self, client_data, docker_image,
-                 default_name='containersample',
                  location='South Central US',
-                 resource_group=None,
-                 storage_account=None,
-                 container_registry=None):
+                 resource_group='containersample-group',
+                 storage_account='containersample',
+                 container_registry='containersample',
+                 container_service='containersample'):
         super().__init__(client_data, docker_image,
-                         default_name=default_name,
                          location=location,
-                         resource_group=resource_group)
-        self.storage = StorageHelper(client_data, self.resources, account=storage_account)
+                         resource_group=resource_group,
+                         container_service=container_service)
+        self.storage = StorageHelper(client_data, self.resources, storage_account)
         self.container_registry = ContainerRegistryHelper(
             client_data,
             self.resources,
@@ -68,7 +68,7 @@ class ACRContainerDeployer(ContainerDeployer):
                 cifsMount_template.read().format(
                     storageacct=self.storage.account.name,
                     sharename=self.storage.default_share,
-                    username=self.container_registry.default_name,
+                    username=self.container_registry.name,
                     password=self.storage.key,
                 )
             )
