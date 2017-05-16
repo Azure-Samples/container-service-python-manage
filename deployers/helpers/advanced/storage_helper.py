@@ -12,6 +12,7 @@ from azure.mgmt.storage.models import (
     Kind as StorageKind
 )
 from azure.storage.file import FileService
+from msrestazure.azure_exceptions import CloudError
 
 
 class StorageHelper(object):
@@ -44,17 +45,30 @@ class StorageHelper(object):
         """
         if self._account is None:
             print('Creating storage account...')
-            # OK to create storage account even if it already exists
-            storage_creation = self.client.storage_accounts.create(
-                self.resource_helper.group.name,
+            # Error to create storage account if it already exists!
+            name_check = self.client.storage_accounts.check_name_availability(self.name)
+            if name_check.name_available:
+                storage_creation = self.client.storage_accounts.create(
+                    self.resource_helper.group.name,
                     self.name,
-                StorageAccountCreateParameters(
-                    sku=StorageAccountSku(StorageSkuName.standard_lrs),
-                    kind=StorageKind.storage,
-                    location=self.resource_helper.group.location,
+                    StorageAccountCreateParameters(
+                        sku=StorageAccountSku(StorageSkuName.standard_lrs),
+                        kind=StorageKind.storage,
+                        location=self.resource_helper.group.location,
+                    )
                 )
-            )
-            storage = storage_creation.result()
+                storage = storage_creation.result()
+            else:
+                try:
+                    storage = self.client.storage_accounts.get_properties(
+                        self.resource_helper.group.name,
+                        self.name
+                    )
+                except CloudError:
+                    print('Storage account {} already exists'
+                          ' in a resource group other than {}.'.format(
+                              self.name, self.resource_helper.group.name
+                          ))
             print('Got storage account:', storage.name)
             self._account = storage
         return self._account
