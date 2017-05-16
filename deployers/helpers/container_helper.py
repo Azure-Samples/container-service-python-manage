@@ -5,6 +5,7 @@ import os
 import subprocess
 from subprocess import PIPE
 import sys
+import time
 import traceback
 
 import requests
@@ -36,6 +37,7 @@ class ContainerServiceHelper(object):
     @property
     def container_service(self):
         container_ops = self.container_client.container_services
+        dns_prefix = Haikunator().haikunate()
 
         if self._container_service is None:
             try:
@@ -47,14 +49,14 @@ class ContainerServiceHelper(object):
                 container_service = ContainerService(
                     location=self.resources.group.location,
                     master_profile=ContainerServiceMasterProfile(
-                        dns_prefix='master' + self.dns_prefix,
+                        dns_prefix=dns_prefix,
                         count=1
                     ),
                     agent_pool_profiles=[
                         ContainerServiceAgentPoolProfile(
                             name=self.name,
                             vm_size='Standard_D1_v2',
-                            dns_prefix='agent' + self.dns_prefix,
+                            dns_prefix=dns_prefix + '-agent',
                         )
                     ],
                     linux_profile=ContainerServiceLinuxProfile(
@@ -73,6 +75,10 @@ class ContainerServiceHelper(object):
                 )
                 self._container_service = container_service_creation.result()
         return self._container_service
+
+    @property
+    def dns_prefix(self):
+        return self.container_service.master_profile.dns_prefix
 
     def get_key_path(self):
         return os.path.join(os.environ['HOME'], '.ssh', 'id_rsa')
@@ -153,7 +159,7 @@ class ContainerServiceHelper(object):
             ]
         return params
 
-    def deploy_container_from_registry(self, docker_tag, private_registry_helper=None):
+    def deploy_container_from_registry(self, private_registry_helper=None):
         tunnel_remote_port = 80
         tunnel_local_port = 8001
         tunnel_host = '127.0.0.1'
@@ -164,11 +170,24 @@ class ContainerServiceHelper(object):
                 remote_port=tunnel_remote_port,
                 local_port=tunnel_local_port,
             )) as tunnel:
+                base_url = 'http://{}:{}/marathon/v2/'.format(*tunnel.local_bind_address)
                 print('Attempting to deploy Docker image {}'.format(self.docker_tag))
                 response = requests.post(
-                    'http://{}:{}/marathon/v2/apps'.format(*tunnel.local_bind_address),
-                    json=self.marathon_deploy_params(docker_tag, private_registry_helper)
+                    base_url + 'apps',
+                    json=self.marathon_deploy_params(private_registry_helper)
                 )
+                content = response.json()
+                print('Deployment request successful.')
+                if 'deployments' in content:
+                    print('Deployments: ', content['deployments'])
+                else:
+                    print(content)
+                while True:
+                    if requests.get(base_url + 'deployments').json():
+                        print('Waiting for deployment to finish...')
+                        time.sleep(1)
+                    else:
+                        break
         except HandlerSSHTunnelForwarderError:
             traceback.print_exc()
             print('Opening SSH tunnel failed.')
@@ -181,10 +200,4 @@ class ContainerServiceHelper(object):
                 addr=self.master_ssh_address(),
             ))
             sys.exit(1)
-        content = json.loads(response.text)
-        print('Deployment request successful.')
-        if 'deployments' in content:
-            print('Deployments: ', content['deployments'])
-        else:
-            print(content)
 
