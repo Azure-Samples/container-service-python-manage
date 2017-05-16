@@ -52,7 +52,8 @@ def main():
         args.image,
     )
     deployer.deploy()
-    print('\nContacting ACS cluster. Response:')
+    print('\nContacting ACS cluster at http://{}'.format(deployer.public_ip()))
+    print('Response:')
     print(requests.get('http://{}'.format(deployer.public_ip())).text)
 
 if __name__ == '__main__':
