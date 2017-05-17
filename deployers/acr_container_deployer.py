@@ -12,6 +12,8 @@ SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), 'scripts')
 
 
 class ACRContainerDeployer(ContainerDeployer):
+    """Helper for deploying a container to ACS using ACR."""
+
     def __init__(self, client_data, docker_image,
                  location='South Central US',
                  resource_group='containersample-group',
@@ -42,7 +44,8 @@ class ACRContainerDeployer(ContainerDeployer):
                 end='\n\n'
             )
 
-    def scp_to_container_master(self, local_path, remote_path):
+    def scp_to_cluster_master(self, local_path, remote_path):
+        """Utility function to copy a file to the cluster's master node."""
         address = self.container_service.master_ssh_login()
         try:
             subprocess.check_output([
@@ -59,9 +62,13 @@ class ACRContainerDeployer(ContainerDeployer):
             sys.exit(1)
 
     def mount_shares(self):
+        """Mount a file share on all the machines in the cluster.
+
+        For docs on how this is done, see:
+        https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-fileshare
+        """
         print('Mounting file share on all machines in cluster...')
         key_file = os.path.basename(self.container_service.get_key_path())
-        # https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-fileshare
         with io.open(os.path.join(SCRIPTS_DIR, 'cifsMountTemplate.sh')) as cifsMount_template, \
              io.open(os.path.join(SCRIPTS_DIR, 'cifsMount.sh'), 'w', newline='\n') as cifsMount:
             cifsMount.write(
@@ -72,9 +79,9 @@ class ACRContainerDeployer(ContainerDeployer):
                     password=self.storage.key,
                 )
             )
-        self.scp_to_container_master(os.path.join(SCRIPTS_DIR, 'cifsMount.sh'), '')
-        self.scp_to_container_master(os.path.join(SCRIPTS_DIR, 'mountShares.sh'), '')
-        self.scp_to_container_master(self.container_service.get_key_path(), key_file)
+        self.scp_to_cluster_master(os.path.join(SCRIPTS_DIR, 'cifsMount.sh'), '')
+        self.scp_to_cluster_master(os.path.join(SCRIPTS_DIR, 'mountShares.sh'), '')
+        self.scp_to_cluster_master(self.container_service.get_key_path(), key_file)
         with self.container_service.cluster_ssh() as proc:
             proc.stdin.write('chmod 600 {}\n'.format(key_file).encode('ascii'))
             proc.stdin.write(b'eval ssh-agent -s\n')
@@ -83,6 +90,7 @@ class ACRContainerDeployer(ContainerDeployer):
             print('Running mountShares on remote master. Cmd:', mountShares_cmd, sep='\n')
             proc.stdin.write(mountShares_cmd.encode('ascii'))
             out, err = proc.communicate(input=b'exit\n')
+        print('Finished mounting shares.')
         self._format_proc_output('Stdout:', out)
         self._format_proc_output('Stderr:', err)
 
@@ -90,8 +98,7 @@ class ACRContainerDeployer(ContainerDeployer):
         registry_image_name = self.docker_image.split('/')[-1]
         self.container_registry.setup_image(self.docker_image, registry_image_name)
         self.mount_shares()
-        self.container_service.deploy_container_from_registry(
-            self.container_registry.get_docker_repo_tag(registry_image_name),
-            self.container_registry
+        self.container_service.deploy_container(
+            private_registry_helper=self.container_registry
         )
 
