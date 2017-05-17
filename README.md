@@ -295,6 +295,15 @@ To make this work, you must edit `.docker/config.json`
 and remove the "credsStore" entry from the JSON there.
 (Make sure that what you leave is still valid JSON!)
 
+### File share mounting
+
+The cifsMount.sh script described in
+[this document](https://docs.microsoft.com/en-us/azure/container-service/container-service-dcos-fileshare#mount-the-share-in-your-cluster)
+and used to mount the Azure file share in the cluster
+may give `mount error(13): Permission denied`.
+We are looking into the cause of this
+and how to resolve it.
+
 <a id="wsl"></a>
 
 ### Docker and WSL (Windows Subsystem for Linux)
