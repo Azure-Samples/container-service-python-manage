@@ -3,6 +3,8 @@ from .helpers.container_helper import ContainerServiceHelper
 
 
 class ContainerDeployer(object):
+    """Helper for deploying a local Docker image to ACS."""
+
     def __init__(self, client_data, docker_image,
                  location='South Central US',
                  container_service='containersample',
@@ -18,11 +20,11 @@ class ContainerDeployer(object):
                                                         self.docker_image)
 
     def deploy(self):
-        self.container_service.deploy_container_from_registry()
+        self.container_service.deploy_container()
 
     def public_ip(self):
+        """Get the IP address for the public agent in the container service."""
         for item in self.resources.list_resources():
             name = item.name.lower()
             if 'agent-ip' in name and self.container_service.dns_prefix in name:
                 return self.resources.get_by_id(item.id).properties['ipAddress']
-
