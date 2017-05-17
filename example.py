@@ -1,4 +1,4 @@
-"""Deploy a Docker container from an Azure registry to a cluster.
+"""Deploy a Docker container (optionally from an Azure registry) using Azure Container Service.
 """
 
 import argparse
