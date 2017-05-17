@@ -32,6 +32,7 @@ def working_dir(path):
 
 
 class ContainerRegistryHelper(object):
+    """Manage an Azure Container Registry."""
     def __init__(self, client_data, resource_helper, storage,
                  name='containersample'):
         self.resources = resource_helper
@@ -44,6 +45,12 @@ class ContainerRegistryHelper(object):
 
     @property
     def registry(self):
+        """Get the ContainerRegistry object managed by this helper.
+
+        This is the model for the container registry with self.name.
+        If that container registry doesn't exist, create it
+        and then return the model object.
+        """
         if self._registry is None:
             print('Creating container registry...')
             registry_ops = self.registry_client.registries
@@ -53,7 +60,6 @@ class ContainerRegistryHelper(object):
                     self.name,
                 )
             except CloudError:
-                # try to create registry
                 registry_creation = registry_ops.create(
                     self.resources.group.name,
                     self.name,
@@ -74,6 +80,11 @@ class ContainerRegistryHelper(object):
 
     @property
     def credentials(self):
+        """Get login credentials to the managed container registry.
+
+        List credentials and return the first one as a LoginCredentials
+        namedtuple.
+        """
         if self._credentials is None:
             all_credentials = self.registry_client.registries.list_credentials(
                 self.resources.group.name,
