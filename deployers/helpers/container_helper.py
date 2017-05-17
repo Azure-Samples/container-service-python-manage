@@ -27,6 +27,7 @@ from msrestazure.azure_exceptions import CloudError
 
 
 class ContainerServiceHelper(object):
+    """Manage an Azure Container Service."""
     def __init__(self, client_data, resource_helper, name, docker_tag):
         self.resources = resource_helper
         self.name = name
@@ -36,6 +37,12 @@ class ContainerServiceHelper(object):
 
     @property
     def container_service(self):
+        """Get the ContainerService object managed by this helper.
+
+        This is the model for the container service with self.name.
+        If that container service doesn't exist, create it
+        and then return the model object.
+        """
         container_ops = self.container_client.container_services
         dns_prefix = Haikunator().haikunate()
 
@@ -80,7 +87,8 @@ class ContainerServiceHelper(object):
     def dns_prefix(self):
         return self.container_service.master_profile.dns_prefix
 
-    def get_key_path(self):
+    @staticmethod
+    def get_key_path():
         return os.path.join(os.environ['HOME'], '.ssh', 'id_rsa')
 
     def _get_ssh_config(self, key_path=None):
@@ -103,6 +111,7 @@ class ContainerServiceHelper(object):
 
     def ssh_tunnel_args(self, remote_host='127.0.0.1', local_host='127.0.0.1',
                         remote_port=80, local_port=8001):
+        """Construct arguments for an SSH tunnel to a Marathon instance."""
         return dict(
             ssh_address_or_host=(self.master_ssh_address(), 2200),
             ssh_username=self.name,
@@ -113,6 +122,7 @@ class ContainerServiceHelper(object):
 
     @contextmanager
     def cluster_ssh(self):
+        """Open a ssh connection to the cluster master as a subprocess."""
         try:
             cmd = ['ssh', '-i', self.get_key_path(), self.master_ssh_login()]
             print('Connecting to cluster:', ' '.join(cmd))
@@ -129,6 +139,7 @@ class ContainerServiceHelper(object):
         return self.docker_tag.split('/')[-1]
 
     def marathon_deploy_params(self, private_registry_helper=None):
+        """Get parameters necessary for a Marathon app deploy request."""
         params = {
             "id": self.deployment_id(),
             "container": {
@@ -159,7 +170,13 @@ class ContainerServiceHelper(object):
             ]
         return params
 
-    def deploy_container_from_registry(self, private_registry_helper=None):
+    def deploy_container(self, private_registry_helper=None):
+        """Deploy a Docker container to the container service.
+
+        If a ContainerRegistryHelper is passed for private_registry_helper,
+        it will be used to deploy from a private container registry
+        rather than using a local image.
+        """
         tunnel_remote_port = 80
         tunnel_local_port = 8001
         tunnel_host = '127.0.0.1'
