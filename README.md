@@ -65,7 +65,7 @@ using the [Azure SDK for Python](http://azure-sdk-for-python.readthedocs.io/en/l
     ```
 
 1.  Create an Azure service principal either through
-[Azure CLI](https://azure.microsoft.com/documentation/articles/resource-group-authenticate-service-principal-cli/),
+[Azure CLI](https://docs.microsoft.com/en-us/cli/azure/create-an-azure-service-principal-azure-cli),
 [PowerShell](https://azure.microsoft.com/documentation/articles/resource-group-authenticate-service-principal/)
 or [the portal](https://azure.microsoft.com/documentation/articles/resource-group-create-service-principal-portal/).
 
