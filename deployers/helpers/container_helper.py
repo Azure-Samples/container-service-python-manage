@@ -62,6 +62,7 @@ class ContainerServiceHelper(object):
                     agent_pool_profiles=[
                         ContainerServiceAgentPoolProfile(
                             name=self.name,
+                            count=1,
                             vm_size='Standard_D1_v2',
                             dns_prefix=dns_prefix + '-agent',
                         )
